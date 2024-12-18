@@ -1,6 +1,7 @@
 extern crate daemonize;
 extern crate env_logger;
 extern crate log;
+extern crate clap;
 
 mod clipboard;
 mod recv;
@@ -9,10 +10,32 @@ mod source_data;
 use daemonize::Daemonize;
 use std::io::stdin;
 use std::fs::File;
+use clap::{Command, arg};
+
+fn cli() -> Command {
+    Command::new("richclip")
+        .about("A fictional versioning CLI")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommand(
+            Command::new("copy")
+            .about("Receive and copy data to the clipboard")
+        )
+}
 
 fn main() {
     env_logger::init();
 
+    let matches = cli().get_matches();
+    match matches.subcommand() {
+        Some(("copy", _sub_matches)) => {
+            do_copy();
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn do_copy() {
     let stdin = stdin();
     let source_data = recv::receive_data(&stdin).unwrap();
 
@@ -37,6 +60,7 @@ fn main() {
 
     clipboard::copy_wayland(source_data);
 }
+
 
 fn ignore_sighub() {
     use core::ffi::c_int;
