@@ -1,25 +1,46 @@
+extern crate clap;
 extern crate daemonize;
 extern crate env_logger;
 extern crate log;
-extern crate clap;
 
 mod clipboard;
 mod recv;
 mod source_data;
 
+use clap::{arg, Arg, Command, ArgMatches};
 use daemonize::Daemonize;
-use std::io::stdin;
 use std::fs::File;
-use clap::{Command, arg};
+use std::io::{stdin, stdout};
+use std::os::fd::AsFd;
+use std::os::fd::OwnedFd;
+use anyhow::{bail, Context, Result};
 
 fn cli() -> Command {
     Command::new("richclip")
         .about("A fictional versioning CLI")
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .subcommand(Command::new("copy").about("Receive and copy data to the clipboard"))
         .subcommand(
-            Command::new("copy")
-            .about("Receive and copy data to the clipboard")
+            Command::new("paste")
+                .about("Paste the data from clipboard to the output")
+                .arg(
+                    Arg::new("list-types")
+                        .long("list-types")
+                        .short('l')
+                        .required(false)
+                        .num_args(0)
+                        .help("List the offered mime-types of the current clipboard only without the contents")
+                )
+                .arg(
+                    Arg::new("type")
+                        .long("type")
+                        .short('t')
+                        .value_name("mime-type")
+                        .required(false)
+                        .num_args(1)
+                        .help("Specify the preferred mime-type to be pasted")
+                ),
         )
 }
 
@@ -30,6 +51,9 @@ fn main() {
     match matches.subcommand() {
         Some(("copy", _sub_matches)) => {
             do_copy();
+        }
+        Some(("paste", sub_matches)) => {
+            do_paste(sub_matches);
         }
         _ => unreachable!(),
     }
@@ -61,6 +85,18 @@ fn do_copy() {
     clipboard::copy_wayland(source_data);
 }
 
+fn do_paste(arg_matches: &ArgMatches) {
+    let t = match arg_matches.get_one::<String>("type") {
+        Some(t) => t,
+        _ => ""
+    };
+    let cfg = clipboard::PasteConfig {
+        list_types_only: *arg_matches.get_one::<bool>("list-types").unwrap(),
+        fd_to_write: &stdout(),
+        expected_mime_type: t.to_string()
+    };
+    clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard")
+}
 
 fn ignore_sighub() {
     use core::ffi::c_int;

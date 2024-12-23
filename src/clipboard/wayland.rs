@@ -1,70 +1,219 @@
+use super::mime_type::decide_mime_type;
+use super::PasteConfig;
+use crate::source_data::SourceData;
+use anyhow::{Context, Error, Result};
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
 use wayrs_client::global::GlobalExt;
 use wayrs_client::protocol::wl_seat::WlSeat;
 use wayrs_client::{Connection, EventCtx, IoMode};
-
-use crate::source_data::SourceData;
 use wayrs_protocols::wlr_data_control_unstable_v1::{
+    zwlr_data_control_device_v1::{self, ZwlrDataControlDeviceV1},
+    zwlr_data_control_offer_v1::{self, ZwlrDataControlOfferV1},
     zwlr_data_control_source_v1::{self, ZwlrDataControlSourceV1},
     ZwlrDataControlManagerV1,
 };
 
-struct EventState<'a> {
-    source_data: &'a dyn SourceData,
-    finishied: bool
+struct WaylandClient<T> {
+    conn: Connection<T>,
+    seat: WlSeat,
+    data_ctl_mgr: ZwlrDataControlManagerV1,
 }
 
-pub fn copy_wayland(source_data: impl SourceData) {
-    let (mut conn, globals) = Connection::<EventState>::connect_and_collect_globals().unwrap();
-    let mut seat: Option<WlSeat> = None;
+struct CopyEventState<'a> {
+    finishied: bool,
+    result: Option<Error>,
+    source_data: &'a dyn SourceData,
+}
 
+struct PasteEventState<'a> {
+    finishied: bool,
+    result: Option<Error>,
+    // Stored offers for selection and primary selection (middle-click paste).
+    offers: HashMap<ZwlrDataControlOfferV1, Vec<String>>,
+
+    config: PasteConfig<'a>,
+}
+
+fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
+    let (mut conn, globals) = Connection::<T>::connect_and_collect_globals()
+        .context("Failed to create wayland connection")?;
+
+    let mut seat_opt: Option<WlSeat> = None;
     for g in &globals {
         if g.is::<WlSeat>() {
-            if seat.is_none() {
-                seat = Some(g.bind(&mut conn, 2..=4).unwrap());
+            if seat_opt.is_none() {
+                seat_opt = Some(g.bind(&mut conn, 2..=4).unwrap());
             } else {
-                println!("should not happen");
+                log::debug!("More than one WlSeat found, this is not expected")
             }
         }
     }
+    let seat = seat_opt.context("Failed to find 'WlSeat'")?;
 
-    let data_control_manager: ZwlrDataControlManagerV1 = globals
+    let data_ctl_mgr: ZwlrDataControlManagerV1 = globals
         .iter()
         .find(|g| g.is::<ZwlrDataControlManagerV1>())
-        .expect(
+        .context(
             "No zwlr_data_control_manager_v1 global found, \
 			ensure compositor supports wlr-data-control-unstable-v1 protocol",
-        )
-        .bind(&mut conn, 2)
-        .unwrap();
+        )?
+        .bind(&mut conn, ..=2)
+        .context("Failed to bind to the 'ZwlrDataControlManagerV1'")?;
 
-    let data_control_device = data_control_manager.get_data_device(&mut conn, seat.unwrap());
+    Ok(WaylandClient::<T> {
+        conn,
+        seat,
+        data_ctl_mgr,
+    })
+}
 
-    let source = data_control_manager.create_data_source_with_cb(&mut conn, wl_source_cb);
-    source_data.mime_types().iter().for_each(|mime| {
-        let cstr = CString::new(mime.as_bytes()).unwrap();
-        source.offer(&mut conn, cstr);
-    });
+pub fn paste_wayland(cfg: PasteConfig) -> Result<()> {
+    let mut client =
+        create_wayland_client::<PasteEventState>().context("Faild to create wayland client")?;
 
-    data_control_device.set_selection(&mut conn, Some(source));
-    conn.flush(IoMode::Blocking).unwrap();
+    let _data_control_device =
+        client
+            .data_ctl_mgr
+            .get_data_device_with_cb(&mut client.conn, client.seat, wl_device_cb);
 
-    let mut state = EventState{
-        source_data: &source_data,
-        finishied: false
+    let mut state = PasteEventState {
+        finishied: false,
+        result: None,
+        offers: HashMap::new(),
+        config: cfg,
     };
+
+    client.conn.flush(IoMode::Blocking).unwrap();
     loop {
         if state.finishied {
             break;
         }
-        conn.recv_events(IoMode::Blocking).unwrap();
-        conn.dispatch_events(&mut state);
+        client.conn.recv_events(IoMode::Blocking).unwrap();
+        client.conn.dispatch_events(&mut state);
+    }
+    Ok(())
+}
+
+pub fn copy_wayland(source_data: impl SourceData) -> Result<()> {
+    let mut client =
+        create_wayland_client::<CopyEventState>().context("Faild to create wayland client")?;
+
+    let source = client
+        .data_ctl_mgr
+        .create_data_source_with_cb(&mut client.conn, wl_source_cb);
+    source_data.mime_types().iter().for_each(|mime| {
+        let cstr = CString::new(mime.as_bytes()).unwrap();
+        source.offer(&mut client.conn, cstr);
+    });
+
+    let data_control_device = client
+        .data_ctl_mgr
+        .get_data_device(&mut client.conn, client.seat);
+    data_control_device.set_selection(&mut client.conn, Some(source));
+
+    let mut state = CopyEventState {
+        finishied: false,
+        result: None,
+        source_data: &source_data,
+    };
+
+    client.conn.flush(IoMode::Blocking).unwrap();
+    loop {
+        if state.finishied {
+            break;
+        }
+        client.conn.recv_events(IoMode::Blocking).unwrap();
+        client.conn.dispatch_events(&mut state);
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::collapsible_match)]
+fn wl_device_cb(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
+    macro_rules! unwrap_or_return {
+        ( $e:expr, $report_error:expr) => {
+            match $e {
+                Ok(x) => x,
+                Err(e) => {
+                    if $report_error {
+                        ctx.state.result = Some(e.into())
+                    } else {
+                        // Errors like empty clipboard are not real problems
+                        log::error!("{}", e)
+                    }
+                    ctx.state.finishied = true;
+                    ctx.conn.break_dispatch_loop();
+                    return;
+                }
+            }
+        };
+    }
+
+    match ctx.event {
+        // Received before Selection or PrimarySelection
+        // Need to request mime-types here
+        zwlr_data_control_device_v1::Event::DataOffer(offer) => {
+            if ctx.state.offers.insert(offer, Vec::new()).is_some() {
+                log::error!("Duplicated offer received")
+            }
+            ctx.conn.set_callback_for(offer, move |ctx| {
+                if let zwlr_data_control_offer_v1::Event::Offer(mime_type) = ctx.event {
+                    let str = mime_type.to_str();
+                    if str.is_err() {
+                        log::error!("Failed to convert '{:x?}' to String", mime_type.as_bytes());
+                    } else {
+                        let mime_types = ctx.state.offers.get_mut(&offer).unwrap();
+                        mime_types.push(str.unwrap().to_string());
+                    }
+                }
+            });
+        }
+        zwlr_data_control_device_v1::Event::Selection(o) => {
+            if o.is_none() {
+                log::error!("No data in the clipboard");
+                ctx.state.finishied = true;
+                ctx.conn.break_dispatch_loop();
+            }
+            let obj_id = o.unwrap();
+
+            let fd = unwrap_or_return!(ctx.state.config.fd_to_write.as_fd().try_clone_to_owned(), true);
+            let (offer, supported_types) = ctx
+                .state
+                .offers
+                .iter()
+                .find(|pair| *(pair.0) == obj_id)
+                .unwrap();
+
+            let str = unwrap_or_return!(
+                decide_mime_type(&ctx.state.config.expected_mime_type, supported_types),
+                false
+            );
+            let mime_type = unwrap_or_return!(CString::new(str), true);
+
+            offer.receive(ctx.conn, mime_type, fd);
+            ctx.conn.flush(IoMode::Blocking).unwrap();
+            ctx.state.finishied = true;
+            ctx.conn.break_dispatch_loop();
+        }
+        // For middle-click
+        zwlr_data_control_device_v1::Event::PrimarySelection(_) => {
+            log::debug!("Ignore the primay selection for now")
+        }
+        zwlr_data_control_device_v1::Event::Finished => {
+            log::debug!("Received 'Finished' event");
+            ctx.state.result = Some(Error::msg("The data control object has been destroyed"));
+            ctx.state.finishied = true;
+            ctx.conn.break_dispatch_loop();
+        }
+        _ => unreachable!("Unexpected event for device callback"),
     }
 }
 
-fn wl_source_cb(ctx: EventCtx<EventState, ZwlrDataControlSourceV1>) {
+fn wl_source_cb(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>) {
     match ctx.event {
         zwlr_data_control_source_v1::Event::Send(zwlr_data_control_source_v1::SendArgs {
             mime_type,
@@ -72,7 +221,9 @@ fn wl_source_cb(ctx: EventCtx<EventState, ZwlrDataControlSourceV1>) {
         }) => {
             let src_data = ctx.state.source_data;
             let mut file = File::from(fd);
-            let content = src_data.content_by_mime_type(mime_type.to_str().unwrap()).unwrap();
+            let content = src_data
+                .content_by_mime_type(mime_type.to_str().unwrap())
+                .unwrap();
             file.write_all(content).unwrap();
         }
         zwlr_data_control_source_v1::Event::Cancelled => {
@@ -80,5 +231,87 @@ fn wl_source_cb(ctx: EventCtx<EventState, ZwlrDataControlSourceV1>) {
             ctx.state.finishied = true;
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+    use tempfile::NamedTempFile;
+    use std::os::fd::{AsFd, AsRawFd};
+    use std::os::fd::OwnedFd;
+    use std::fs::read_to_string;
+    use std::io::{Read, Seek, Write};
+    use libc::fsync;
+
+    struct TempFd {
+        file: NamedTempFile
+    }
+
+    impl TempFd {
+        fn new() -> TempFd {
+            let file = NamedTempFile::with_prefix("richclip_test_").unwrap();
+
+            TempFd {
+                file
+            }
+        }
+
+        fn as_owned_fd(&self) -> OwnedFd {
+            self.file.as_fd().try_clone_to_owned().unwrap()
+        }
+
+        fn assert_content(mut self, content: &str) {
+            self.file.flush().unwrap();
+            unsafe {
+                fsync(self.file.as_raw_fd());
+            }
+            drop(self.file.as_fd().try_clone_to_owned().unwrap());
+            let p = self.file.into_temp_path();
+
+            // FIXME: flush() is not working, why???!!
+            std::thread::sleep_ms(1000);
+            let str = read_to_string(&p).unwrap();
+            assert_eq!(content, str)
+        }
+    }
+
+    fn copy_test_data(content: &String) {
+        let ret = Command::new("wl-copy")
+            .arg(content)
+            .status().unwrap();
+        assert!(ret.success())
+    }
+
+    #[test]
+    fn test_paste_empty_mime_type() {
+        let data = "some data to test".to_string();
+        copy_test_data(&data);
+
+        let fd = TempFd::new();
+        let config = PasteConfig {
+            list_types_only: false,
+            expected_mime_type: "".to_string(),
+            fd_to_write: &fd.file
+        };
+
+        paste_wayland(config).unwrap();
+        fd.assert_content(&data)
+    }
+
+    //#[test]
+    fn test_paste_non_exist_mime_type() {
+        let data = "some data to test".to_string();
+        copy_test_data(&data);
+
+        let fd = TempFd::new();
+        let config = PasteConfig {
+            list_types_only: false,
+            expected_mime_type: "DUMMY_TYPE".to_string(),
+            fd_to_write: &fd.file
+        };
+        paste_wayland(config).unwrap();
+        fd.assert_content("")
     }
 }
