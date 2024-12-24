@@ -5,6 +5,7 @@ use std::os::fd::AsFd;
 pub struct PasteConfig<'a> {
     // Only list mime-types
     pub list_types_only: bool,
+    pub use_primary: bool,
     pub expected_mime_type: String,
     pub fd_to_write: &'a dyn AsFd
 }

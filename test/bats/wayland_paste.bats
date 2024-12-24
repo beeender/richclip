@@ -10,13 +10,35 @@ setup_file() {
     run -0 cargo build
 }
 
-teardown_file() {
-    killall wl-copy
+@test "wayland paste simple data" {
+    # Simple data
+    wl-copy "TestDaTA" 3>&-
+    sleep 1
+    run -0 "$RICHCLIP" paste
+    [ "$output" = "TestDaTA" ]
 }
 
-@test "wayland paste" {
-  wl-copy "TestDaTA" 3>&-
+@test "wayland paste with mime-type" {
+    # Specific mime-type
+    wl-copy -t "spec/type" "special_mime_type" 3>&-
+    sleep 1
+    run -0 "$RICHCLIP" paste -t "spec/type"
+    [ "$output" = "special_mime_type" ]
+}
 
-  run -0 "$RICHCLIP" paste
-  [ "$output" = "TestDaTA" ]
+@test "wayland paste with empty clipbaord" {
+    # Empty clipbaord
+    wl-copy -c
+    sleep 1
+    run -0 --separate-stderr  "$RICHCLIP" paste
+    [ "$output" = "" ]
+}
+
+@test "wayland paste simple data from primary" {
+    # Simple data
+    wl-copy "NotThis" 3>&-
+    wl-copy -p "TestDaTA" 3>&-
+    sleep 1
+    run -0 "$RICHCLIP" paste -p
+    [ "$output" = "TestDaTA" ]
 }

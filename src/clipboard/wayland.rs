@@ -74,10 +74,11 @@ pub fn paste_wayland(cfg: PasteConfig) -> Result<()> {
     let mut client =
         create_wayland_client::<PasteEventState>().context("Faild to create wayland client")?;
 
-    let _data_control_device =
-        client
-            .data_ctl_mgr
-            .get_data_device_with_cb(&mut client.conn, client.seat, wl_device_cb);
+    let _data_control_device = client.data_ctl_mgr.get_data_device_with_cb(
+        &mut client.conn,
+        client.seat,
+        wl_device_cb_for_paste,
+    );
 
     let mut state = PasteEventState {
         finishied: false,
@@ -133,7 +134,7 @@ pub fn copy_wayland(source_data: impl SourceData) -> Result<()> {
 }
 
 #[allow(clippy::collapsible_match)]
-fn wl_device_cb(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
+fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
     macro_rules! unwrap_or_return {
         ( $e:expr, $report_error:expr) => {
             match $e {
@@ -172,15 +173,32 @@ fn wl_device_cb(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
                 }
             });
         }
-        zwlr_data_control_device_v1::Event::Selection(o) => {
+        zwlr_data_control_device_v1::Event::PrimarySelection(o)
+        | zwlr_data_control_device_v1::Event::Selection(o) => {
+            match ctx.event {
+                zwlr_data_control_device_v1::Event::PrimarySelection(_) => {
+                    if !ctx.state.config.use_primary {
+                        return;
+                    }
+                }
+                _ => {
+                    if ctx.state.config.use_primary {
+                        return;
+                    }
+                }
+            }
             if o.is_none() {
                 log::error!("No data in the clipboard");
                 ctx.state.finishied = true;
                 ctx.conn.break_dispatch_loop();
+                return;
             }
             let obj_id = o.unwrap();
 
-            let fd = unwrap_or_return!(ctx.state.config.fd_to_write.as_fd().try_clone_to_owned(), true);
+            let fd = unwrap_or_return!(
+                ctx.state.config.fd_to_write.as_fd().try_clone_to_owned(),
+                true
+            );
             let (offer, supported_types) = ctx
                 .state
                 .offers
@@ -198,10 +216,6 @@ fn wl_device_cb(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
             ctx.conn.flush(IoMode::Blocking).unwrap();
             ctx.state.finishied = true;
             ctx.conn.break_dispatch_loop();
-        }
-        // For middle-click
-        zwlr_data_control_device_v1::Event::PrimarySelection(_) => {
-            log::debug!("Ignore the primay selection for now")
         }
         zwlr_data_control_device_v1::Event::Finished => {
             log::debug!("Received 'Finished' event");

@@ -40,6 +40,14 @@ fn cli() -> Command {
                         .required(false)
                         .num_args(1)
                         .help("Specify the preferred mime-type to be pasted")
+                )
+                .arg(
+                    Arg::new("primary")
+                        .long("primary")
+                        .short('p')
+                        .required(false)
+                        .num_args(0)
+                        .help("Use the 'primary' clipboard")
                 ),
         )
 }
@@ -92,6 +100,7 @@ fn do_paste(arg_matches: &ArgMatches) {
     };
     let cfg = clipboard::PasteConfig {
         list_types_only: *arg_matches.get_one::<bool>("list-types").unwrap(),
+        use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
         fd_to_write: &stdout(),
         expected_mime_type: t.to_string()
     };
