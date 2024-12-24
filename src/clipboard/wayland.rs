@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
+use std::os::fd::AsFd;
 use wayrs_client::global::GlobalExt;
 use wayrs_client::protocol::wl_seat::WlSeat;
 use wayrs_client::{Connection, EventCtx, IoMode};
@@ -28,13 +29,13 @@ struct CopyEventState<'a> {
     source_data: &'a dyn SourceData,
 }
 
-struct PasteEventState<'a> {
+struct PasteEventState<'a, T: AsFd + Write> {
     finishied: bool,
     result: Option<Error>,
     // Stored offers for selection and primary selection (middle-click paste).
     offers: HashMap<ZwlrDataControlOfferV1, Vec<String>>,
 
-    config: PasteConfig<'a>,
+    config: PasteConfig<'a, T>,
 }
 
 fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
@@ -70,9 +71,9 @@ fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
     })
 }
 
-pub fn paste_wayland(cfg: PasteConfig) -> Result<()> {
+pub fn paste_wayland<T: AsFd + Write + 'static>(cfg: PasteConfig<T>) -> Result<()> {
     let mut client =
-        create_wayland_client::<PasteEventState>().context("Faild to create wayland client")?;
+        create_wayland_client::<PasteEventState<T>>().context("Faild to create wayland client")?;
 
     let _data_control_device = client.data_ctl_mgr.get_data_device_with_cb(
         &mut client.conn,
@@ -134,7 +135,9 @@ pub fn copy_wayland(source_data: impl SourceData) -> Result<()> {
 }
 
 #[allow(clippy::collapsible_match)]
-fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
+fn wl_device_cb_for_paste<T: AsFd + Write>(
+    ctx: EventCtx<PasteEventState<T>, ZwlrDataControlDeviceV1>,
+) {
     macro_rules! unwrap_or_return {
         ( $e:expr, $report_error:expr) => {
             match $e {
@@ -173,6 +176,7 @@ fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1
                 }
             });
         }
+        // Do paste here
         zwlr_data_control_device_v1::Event::PrimarySelection(o)
         | zwlr_data_control_device_v1::Event::Selection(o) => {
             match ctx.event {
@@ -205,6 +209,16 @@ fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1
                 .iter()
                 .find(|pair| *(pair.0) == obj_id)
                 .unwrap();
+
+            // with "-l", list the mime-types and return
+            if ctx.state.config.list_types_only {
+                for mt in supported_types {
+                    writeln!(ctx.state.config.fd_to_write, "{}", mt).unwrap()
+                }
+                ctx.state.finishied = true;
+                ctx.conn.break_dispatch_loop();
+                return;
+            }
 
             let str = unwrap_or_return!(
                 decide_mime_type(&ctx.state.config.expected_mime_type, supported_types),

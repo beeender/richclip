@@ -1,9 +1,13 @@
 #!/usr/bin/env bats
 bats_require_minimum_version 1.5.0
 
+# NOTE: Tests here use wl-clipboard to copy test data to the clipbaord. For some reasons, the tests
+# are quite flaky even with a one-sec sleep.
+
 ROOT_DIR=$(realpath "$BATS_TEST_DIRNAME/../..")
 # "cargo run" cannot be used since it may mess up the output
-# If hardcode path creates problems, use https://github.com/rust-lang/cargo/issues/7895#issuecomment-2323050826
+# If hardcode path creates problems, use:
+# https://github.com/rust-lang/cargo/issues/7895#issuecomment-2323050826
 RICHCLIP="$ROOT_DIR/target/debug/richclip"
 
 setup_file() {
@@ -30,7 +34,7 @@ setup_file() {
     # Empty clipbaord
     wl-copy -c
     sleep 1
-    run -0 --separate-stderr  "$RICHCLIP" paste
+    run -0 --separate-stderr "$RICHCLIP" paste
     [ "$output" = "" ]
 }
 
@@ -41,4 +45,18 @@ setup_file() {
     sleep 1
     run -0 "$RICHCLIP" paste -p
     [ "$output" = "TestDaTA" ]
+}
+
+@test "wayland paste list mime-types only" {
+    # wl-copy doesn't support multiple types
+    wl-copy -t "some-type" "TestDaTA" 3>&-
+    sleep 1
+    run -0 "$RICHCLIP" paste -l
+    [ "$output" = "some-type" ]
+
+    # Test primary
+    wl-copy -p -t "other-type" "TestDaTA" 3>&-
+    sleep 1
+    run -0 "$RICHCLIP" paste -l -p
+    [ "$output" = "other-type" ]
 }

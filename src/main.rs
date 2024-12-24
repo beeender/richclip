@@ -101,7 +101,7 @@ fn do_paste(arg_matches: &ArgMatches) {
     let cfg = clipboard::PasteConfig {
         list_types_only: *arg_matches.get_one::<bool>("list-types").unwrap(),
         use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
-        fd_to_write: &stdout(),
+        fd_to_write: &mut stdout(),
         expected_mime_type: t.to_string()
     };
     clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard")
