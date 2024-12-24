@@ -7,8 +7,7 @@ mod clipboard;
 mod recv;
 mod source_data;
 
-use anyhow::{bail, Context, Result};
-use clap::{arg, Arg, ArgMatches, Command};
+use clap::{Arg, ArgMatches, Command};
 use daemonize::Daemonize;
 use std::fs::File;
 use std::io::{stdin, stdout};
@@ -103,7 +102,7 @@ fn do_copy(arg_matches: &ArgMatches) {
         source_data,
         use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
     };
-    clipboard::copy_wayland(copy_config).unwrap()
+    clipboard::copy_wayland(copy_config).expect("Failed to copy to wayland clipboard")
 }
 
 fn do_paste(arg_matches: &ArgMatches) {
