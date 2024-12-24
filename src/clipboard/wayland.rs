@@ -235,8 +235,12 @@ fn wl_device_cb_for_paste<T: AsFd + Write>(
             let mime_type = unwrap_or_return!(CString::new(str), true);
 
             offer.receive(ctx.conn, mime_type, fd);
+            // This looks strange, but it is working. It seems offer.receive is a request but nont a
+            // blocking call, which needs an extra loop to finish. Maybe a callback needs to be set
+            // to wait until it is processed, but I have no idea how to do that.
+            // conn.set_callback_for() doesn't work for the offer here.
+            ctx.conn.blocking_roundtrip().unwrap();
             offer.destroy(ctx.conn);
-            ctx.conn.flush(IoMode::Blocking).unwrap();
             ctx.state.finishied = true;
             ctx.conn.break_dispatch_loop();
         }
