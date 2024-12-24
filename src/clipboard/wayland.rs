@@ -1,7 +1,7 @@
 use super::mime_type::decide_mime_type;
 use super::PasteConfig;
 use crate::source_data::SourceData;
-use anyhow::{Context, Error, Result};
+use anyhow::{Context, Error, Result, bail};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
@@ -96,7 +96,12 @@ pub fn paste_wayland<T: AsFd + Write + 'static>(cfg: PasteConfig<T>) -> Result<(
         client.conn.recv_events(IoMode::Blocking).unwrap();
         client.conn.dispatch_events(&mut state);
     }
-    Ok(())
+
+    if state.result.is_none() {
+        return Ok(());
+    }
+
+    bail!(state.result.unwrap());
 }
 
 pub fn copy_wayland(source_data: impl SourceData) -> Result<()> {

@@ -90,7 +90,7 @@ fn do_copy() {
         Err(e) => eprintln!("Error, {}", e),
     }
 
-    clipboard::copy_wayland(source_data);
+    clipboard::copy_wayland(source_data).unwrap()
 }
 
 fn do_paste(arg_matches: &ArgMatches) {
