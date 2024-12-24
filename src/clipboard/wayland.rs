@@ -1,5 +1,6 @@
 use super::mime_type::decide_mime_type;
 use super::PasteConfig;
+use super::CopyConfig;
 use crate::source_data::SourceData;
 use anyhow::{Context, Error, Result, bail};
 use std::collections::HashMap;
@@ -25,7 +26,6 @@ struct WaylandClient<T> {
 
 struct CopyEventState<'a> {
     finishied: bool,
-    result: Option<Error>,
     source_data: &'a dyn SourceData,
 }
 
@@ -104,14 +104,14 @@ pub fn paste_wayland<T: AsFd + Write + 'static>(cfg: PasteConfig<T>) -> Result<(
     bail!(state.result.unwrap());
 }
 
-pub fn copy_wayland(source_data: impl SourceData) -> Result<()> {
+pub fn copy_wayland<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
     let mut client =
         create_wayland_client::<CopyEventState>().context("Faild to create wayland client")?;
 
     let source = client
         .data_ctl_mgr
-        .create_data_source_with_cb(&mut client.conn, wl_source_cb);
-    source_data.mime_types().iter().for_each(|mime| {
+        .create_data_source_with_cb(&mut client.conn, wl_source_cb_for_copy);
+    config.source_data.mime_types().iter().for_each(|mime| {
         let cstr = CString::new(mime.as_bytes()).unwrap();
         source.offer(&mut client.conn, cstr);
     });
@@ -119,12 +119,15 @@ pub fn copy_wayland(source_data: impl SourceData) -> Result<()> {
     let data_control_device = client
         .data_ctl_mgr
         .get_data_device(&mut client.conn, client.seat);
-    data_control_device.set_selection(&mut client.conn, Some(source));
+    if config.use_primary {
+        data_control_device.set_primary_selection(&mut client.conn, Some(source));
+    } else {
+        data_control_device.set_selection(&mut client.conn, Some(source));
+    }
 
     let mut state = CopyEventState {
         finishied: false,
-        result: None,
-        source_data: &source_data,
+        source_data: &config.source_data,
     };
 
     client.conn.flush(IoMode::Blocking).unwrap();
@@ -232,6 +235,7 @@ fn wl_device_cb_for_paste<T: AsFd + Write>(
             let mime_type = unwrap_or_return!(CString::new(str), true);
 
             offer.receive(ctx.conn, mime_type, fd);
+            offer.destroy(ctx.conn);
             ctx.conn.flush(IoMode::Blocking).unwrap();
             ctx.state.finishied = true;
             ctx.conn.break_dispatch_loop();
@@ -246,12 +250,13 @@ fn wl_device_cb_for_paste<T: AsFd + Write>(
     }
 }
 
-fn wl_source_cb(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>) {
+fn wl_source_cb_for_copy(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>) {
     match ctx.event {
         zwlr_data_control_source_v1::Event::Send(zwlr_data_control_source_v1::SendArgs {
             mime_type,
             fd,
         }) => {
+            log::debug!("Received 'Send' event");
             let src_data = ctx.state.source_data;
             let mut file = File::from(fd);
             let content = src_data
@@ -260,9 +265,10 @@ fn wl_source_cb(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>) {
             file.write_all(content).unwrap();
         }
         zwlr_data_control_source_v1::Event::Cancelled => {
+            log::debug!("Received 'Cancelled' event");
             ctx.conn.break_dispatch_loop();
             ctx.state.finishied = true;
         }
-        _ => {}
+        _ => unreachable!("Unexpected event for source callback"),
     }
 }

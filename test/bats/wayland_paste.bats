@@ -5,6 +5,7 @@ bats_require_minimum_version 1.5.0
 # are quite flaky even with a one-sec sleep.
 
 ROOT_DIR=$(realpath "$BATS_TEST_DIRNAME/../..")
+TEST_DATA_DIR=$(realpath "$BATS_TEST_DIRNAME/../data")
 # "cargo run" cannot be used since it may mess up the output
 # If hardcode path creates problems, use:
 # https://github.com/rust-lang/cargo/issues/7895#issuecomment-2323050826
@@ -59,4 +60,24 @@ setup_file() {
     sleep 1
     run -0 "$RICHCLIP" paste -l -p
     [ "$output" = "other-type" ]
+}
+
+@test "wayland copy" {
+    "$RICHCLIP" copy 3>&- < "$TEST_DATA_DIR/test_data_0"
+
+    run -0 wl-paste -l
+    [ "${lines[0]}" = "text/plain" ]
+    [ "${lines[1]}" = "text" ]
+    [ "${lines[2]}" = "text/html" ]
+    run -0 wl-paste
+    [ "$output" = "GOOD" ]
+    run -0 wl-paste -t "text/html"
+    [ "$output" = "BAD" ]
+
+    # Test primary selection
+    "$RICHCLIP" copy -p 3>&- < "$TEST_DATA_DIR/test_data_0"
+    run -0 wl-paste -p
+    [ "$output" = "GOOD" ]
+    run -0 wl-paste -p -t "text/html"
+    [ "$output" = "BAD" ]
 }

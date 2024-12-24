@@ -7,20 +7,29 @@ mod clipboard;
 mod recv;
 mod source_data;
 
-use clap::{arg, Arg, Command, ArgMatches};
+use anyhow::{bail, Context, Result};
+use clap::{arg, Arg, ArgMatches, Command};
 use daemonize::Daemonize;
 use std::fs::File;
 use std::io::{stdin, stdout};
-use std::os::fd::AsFd;
-use std::os::fd::OwnedFd;
-use anyhow::{bail, Context, Result};
 
 fn cli() -> Command {
     Command::new("richclip")
         .about("A fictional versioning CLI")
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .subcommand(Command::new("copy").about("Receive and copy data to the clipboard"))
+        .subcommand(
+            Command::new("copy")
+            .about("Receive and copy data to the clipboard")
+            .arg(
+                    Arg::new("primary")
+                        .long("primary")
+                        .short('p')
+                        .required(false)
+                        .num_args(0)
+                        .help("Use the 'primary' clipboard")
+                )
+        )
         .subcommand(
             Command::new("paste")
                 .about("Paste the data from clipboard to the output")
@@ -57,8 +66,8 @@ fn main() {
 
     let matches = cli().get_matches();
     match matches.subcommand() {
-        Some(("copy", _sub_matches)) => {
-            do_copy();
+        Some(("copy", sub_matches)) => {
+            do_copy(sub_matches);
         }
         Some(("paste", sub_matches)) => {
             do_paste(sub_matches);
@@ -67,7 +76,7 @@ fn main() {
     }
 }
 
-fn do_copy() {
+fn do_copy(arg_matches: &ArgMatches) {
     let stdin = stdin();
     let source_data = recv::receive_data(&stdin).unwrap();
 
@@ -90,19 +99,23 @@ fn do_copy() {
         Err(e) => eprintln!("Error, {}", e),
     }
 
-    clipboard::copy_wayland(source_data).unwrap()
+    let copy_config = clipboard::CopyConfig {
+        source_data,
+        use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
+    };
+    clipboard::copy_wayland(copy_config).unwrap()
 }
 
 fn do_paste(arg_matches: &ArgMatches) {
     let t = match arg_matches.get_one::<String>("type") {
         Some(t) => t,
-        _ => ""
+        _ => "",
     };
     let cfg = clipboard::PasteConfig {
         list_types_only: *arg_matches.get_one::<bool>("list-types").unwrap(),
         use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
         fd_to_write: &mut stdout(),
-        expected_mime_type: t.to_string()
+        expected_mime_type: t.to_string(),
     };
     clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard")
 }
