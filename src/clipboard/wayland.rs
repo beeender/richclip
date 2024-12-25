@@ -174,12 +174,15 @@ fn wl_device_cb_for_paste<T: AsFd + Write>(
             }
             ctx.conn.set_callback_for(offer, move |ctx| {
                 if let zwlr_data_control_offer_v1::Event::Offer(mime_type) = ctx.event {
-                    let str = mime_type.to_str();
-                    if str.is_err() {
-                        log::error!("Failed to convert '{:x?}' to String", mime_type.as_bytes());
-                    } else {
+                    if let Ok(str) = mime_type.to_str() {
+                        let new_type = str.to_string();
                         let mime_types = ctx.state.offers.get_mut(&offer).unwrap();
-                        mime_types.push(str.unwrap().to_string());
+                        if !mime_types.iter().any(|s| new_type.eq(s)) {
+                            // Duplicated mime-types could be reported (wl-paste -l shows the same)
+                            mime_types.push(new_type);
+                        }
+                    } else {
+                        log::error!("Failed to convert '{:x?}' to String", mime_type.as_bytes());
                     }
                 }
             });
