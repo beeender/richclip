@@ -12,6 +12,24 @@ use daemonize::Daemonize;
 use std::fs::File;
 use std::io::{stdin, stdout};
 
+enum Backend {
+    Wayland,
+    X,
+}
+
+fn choose_backend() -> Backend {
+    if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        return Backend::Wayland;
+    } else if std::env::var("DISPLAY").is_ok() {
+        return Backend::X;
+    }
+
+    log::error!(
+        "Failed to decide which backend to use. '$WAYLAND_DISPLAY' or '$DISPLAY' env needs to be set"
+    );
+    std::process::exit(1)
+}
+
 fn cli() -> Command {
     Command::new("richclip")
         .about("A fictional versioning CLI")
@@ -62,7 +80,6 @@ fn cli() -> Command {
 
 fn main() {
     env_logger::init();
-
     let matches = cli().get_matches();
     match matches.subcommand() {
         Some(("copy", sub_matches)) => {
@@ -116,7 +133,10 @@ fn do_paste(arg_matches: &ArgMatches) {
         fd_to_write: &mut stdout(),
         expected_mime_type: t.to_string(),
     };
-    clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard")
+    match choose_backend() {
+        Backend::Wayland => clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard"),
+        Backend::X => clipboard::paste_x(cfg).expect("Failed to paste from X clipboard")
+    }
 }
 
 fn ignore_sighub() {

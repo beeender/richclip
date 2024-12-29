@@ -1,5 +1,6 @@
 mod mime_type;
 mod wayland;
+mod x;
 
 use std::io::Write;
 use std::os::fd::AsFd;
@@ -19,3 +20,4 @@ pub struct CopyConfig<T: SourceData> {
 }
 
 pub use wayland::{copy_wayland, paste_wayland};
+pub use x::{paste_x};
