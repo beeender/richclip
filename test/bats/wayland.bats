@@ -9,6 +9,9 @@ TEST_DATA_DIR=$(realpath "$BATS_TEST_DIRNAME/../data")
 RICHCLIP="$ROOT_DIR/target/debug/richclip"
 
 setup_file() {
+    if [ -z "$WAYLAND_DISPLAY" ]; then
+        skip
+    fi
     run -0 cargo build
 }
 
@@ -24,6 +27,10 @@ setup_file() {
     wl-copy -t "spec/type" "special_mime_type" 3>&-
     run -0 "$RICHCLIP" paste -t "spec/type"
     [ "$output" = "special_mime_type" ]
+
+    # Expected mime-type does not exist
+    run -0 "$RICHCLIP" paste -t "not_this_type"
+    [ "$output" = "" ]
 }
 
 @test "wayland paste with empty clipbaord" {

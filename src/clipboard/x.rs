@@ -141,8 +141,16 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
                     .reply()
                     .context("'XCLIP_OUT' reply failed")?;
                 if state.supported_mime_types.is_none() {
+                    if reply.type_ == AtomEnum::NONE.into() {
+                        log::debug!("Got None type reply which probably means the clipboard is empty");
+                        break;
+                    }
                     let mime_types = targets_to_strings(&mut state, &reply)
                         .context("Failed to get supported targets")?;
+                    if mime_types.is_empty() {
+                        log::debug!("Got 0 targets which probably means the clipboard is empty");
+                        break;
+                    }
                     if state.config.list_types_only {
                         for line in mime_types {
                             writeln!(state.config.fd_to_write, "{}", line)
@@ -151,8 +159,11 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
                         break;
                     } else {
                         let mime_type =
-                            decide_mime_type(&state.config.expected_mime_type, &mime_types)
-                                .context("Failed to decide mime type")?;
+                            decide_mime_type(&state.config.expected_mime_type, &mime_types).unwrap_or("".to_string());
+                        if mime_type.is_empty() {
+                            log::debug!("Failed to decide mime type");
+                            break;
+                        }
                         let target = get_atom_id_by_name(&state.conn, &mime_type)
                             .context(format!("Failed to get atom id for '{}'", mime_type))?;
                         state.supported_mime_types = Some(mime_types);
