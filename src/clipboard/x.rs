@@ -1,7 +1,6 @@
-extern crate x11rb;
-
 use super::mime_type::decide_mime_type;
 use super::PasteConfig;
+use crate::source_data::SourceData;
 use anyhow::{bail, Context, Result};
 use std::io::Write;
 use std::os::fd::AsFd;
@@ -27,14 +26,22 @@ atom_manager! {
     }
 }
 
-struct XPasteState<'a, T: AsFd + Write> {
+struct XClient {
     conn: RustConnection,
+    win_id: u32,
     atoms: AtomCollection,
+}
 
+struct XPasteState<'a, T: AsFd + Write> {
     supported_mime_types: Option<Vec<String>>,
     config: PasteConfig<'a, T>,
     // Translate the config.primary
     selection: Atom,
+}
+
+struct XCopyState<'a> {
+    finishied: bool,
+    source_data: &'a dyn SourceData,
 }
 
 fn get_atom_id_by_name(conn: &RustConnection, name: &str) -> Result<Atom> {
@@ -49,11 +56,8 @@ fn get_atom_name(conn: &RustConnection, atom: Atom) -> Result<String> {
     Ok(str)
 }
 
-fn targets_to_strings<T: AsFd + Write>(
-    state: &mut XPasteState<T>,
-    reply: &GetPropertyReply,
-) -> Result<Vec<String>> {
-    if reply.type_ != state.atoms.ATOM {
+fn targets_to_strings(client: &mut XClient, reply: &GetPropertyReply) -> Result<Vec<String>> {
+    if reply.type_ != client.atoms.ATOM {
         bail!(
             "'TARGETS' selection returned an unexpected type {}",
             reply.type_
@@ -65,7 +69,7 @@ fn targets_to_strings<T: AsFd + Write>(
         .value32()
         .context("'targets_to_strings' got reply with wrong value type")?;
     for v in it {
-        match get_atom_name(&state.conn, v) {
+        match get_atom_name(&client.conn, v) {
             Ok(name) => {
                 ret.push(name);
             }
@@ -78,13 +82,11 @@ fn targets_to_strings<T: AsFd + Write>(
     Ok(ret)
 }
 
-pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> {
-    let (conn, screen_num) = x11rb::connect(None).context("Failed to connect to the X server")?;
+fn create_x_client(display_name: Option<&str>) -> Result<XClient> {
+    let (conn, screen_num) =
+        x11rb::connect(display_name).context("Failed to connect to the X server")?;
     let screen = &conn.setup().roots[screen_num];
     let win_id = conn.generate_id()?;
-
-    let atoms = AtomCollection::new(&conn)?;
-    let atoms = atoms.reply()?;
 
     conn.create_window(
         COPY_DEPTH_FROM_PARENT,
@@ -98,34 +100,47 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
         WindowClass::INPUT_OUTPUT,
         0,
         &CreateWindowAux::new().background_pixel(screen.white_pixel),
-    )?;
-
-    let selection = if config.use_primary {
-        atoms.PRIMARY
-    } else {
-        atoms.CLIPBOARD
-    };
-    // Use 'TARGETS' to list all supported mime-types of the clipboard content first
-    conn.convert_selection(
-        win_id,
-        selection,
-        atoms.TARGETS,
-        atoms.XCLIP_OUT,
-        CURRENT_TIME,
     )
-    .context("Failed to call convert_selection to get 'TARGETS'")?;
-    conn.flush().context("Failed to flush connection")?;
+    .context("Failed to call 'create_window'")?;
 
-    let mut state = XPasteState {
+    let atoms = AtomCollection::new(&conn)?;
+    let atoms = atoms.reply()?;
+    Ok(XClient {
         conn,
         atoms,
+        win_id,
+    })
+}
+
+pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> {
+    let mut client = create_x_client(None)?;
+
+    let selection = if config.use_primary {
+        client.atoms.PRIMARY
+    } else {
+        client.atoms.CLIPBOARD
+    };
+    // Use 'TARGETS' to list all supported mime-types of the clipboard content first
+    client
+        .conn
+        .convert_selection(
+            client.win_id,
+            selection,
+            client.atoms.TARGETS,
+            client.atoms.XCLIP_OUT,
+            CURRENT_TIME,
+        )
+        .context("Failed to call convert_selection to get 'TARGETS'")?;
+    client.conn.flush().context("Failed to flush connection")?;
+
+    let mut state = XPasteState {
         supported_mime_types: None,
         config,
         selection,
     };
 
     loop {
-        let event = state
+        let event = client
             .conn
             .wait_for_event()
             .context("Failed to get X event")?;
@@ -134,18 +149,27 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
                 if event.selection != state.selection {
                     continue;
                 }
-                let reply = state
+                let reply = client
                     .conn
-                    .get_property(false, win_id, atoms.XCLIP_OUT, AtomEnum::ANY, 0, u32::MAX)
+                    .get_property(
+                        false,
+                        client.win_id,
+                        client.atoms.XCLIP_OUT,
+                        AtomEnum::ANY,
+                        0,
+                        u32::MAX,
+                    )
                     .context("get_property 'XCLIP_OUT' failed")?
                     .reply()
                     .context("'XCLIP_OUT' reply failed")?;
                 if state.supported_mime_types.is_none() {
                     if reply.type_ == AtomEnum::NONE.into() {
-                        log::debug!("Got None type reply which probably means the clipboard is empty");
+                        log::debug!(
+                            "Got None type reply which probably means the clipboard is empty"
+                        );
                         break;
                     }
-                    let mime_types = targets_to_strings(&mut state, &reply)
+                    let mime_types = targets_to_strings(&mut client, &reply)
                         .context("Failed to get supported targets")?;
                     if mime_types.is_empty() {
                         log::debug!("Got 0 targets which probably means the clipboard is empty");
@@ -159,27 +183,28 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
                         break;
                     } else {
                         let mime_type =
-                            decide_mime_type(&state.config.expected_mime_type, &mime_types).unwrap_or("".to_string());
+                            decide_mime_type(&state.config.expected_mime_type, &mime_types)
+                                .unwrap_or("".to_string());
                         if mime_type.is_empty() {
                             log::debug!("Failed to decide mime type");
                             break;
                         }
-                        let target = get_atom_id_by_name(&state.conn, &mime_type)
+                        let target = get_atom_id_by_name(&client.conn, &mime_type)
                             .context(format!("Failed to get atom id for '{}'", mime_type))?;
                         state.supported_mime_types = Some(mime_types);
-                        state
+                        client
                             .conn
                             .convert_selection(
-                                win_id,
+                                client.win_id,
                                 selection,
                                 target,
-                                atoms.XCLIP_OUT,
+                                client.atoms.XCLIP_OUT,
                                 CURRENT_TIME,
                             )
                             .context("Failed to call convert_selection to get 'TARGETS'")?;
-                        state.conn.flush().context("Failed to flush connection")?;
+                        client.conn.flush().context("Failed to flush connection")?;
                     }
-                } else if reply.type_ == atoms.INCR {
+                } else if reply.type_ == client.atoms.INCR {
                     bail!("INCR has not been implemented")
                 } else {
                     state
