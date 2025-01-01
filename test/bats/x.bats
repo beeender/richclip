@@ -63,22 +63,23 @@ setup_file() {
     [ "${lines[1]}" = "other-type" ]
 }
 
-# @test "X copy" {
-#     "$RICHCLIP" copy 3>&- < "$TEST_DATA_DIR/test_data_0"
+@test "X copy" {
+    "$RICHCLIP" copy 3>&- < "$TEST_DATA_DIR/test_data_0"
 
-#     run -0 wl-paste -l
-#     [ "${lines[0]}" = "text/plain" ]
-#     [ "${lines[1]}" = "text" ]
-#     [ "${lines[2]}" = "text/html" ]
-#     run -0 wl-paste
-#     [ "$output" = "GOOD" ]
-#     run -0 wl-paste -t "text/html"
-#     [ "$output" = "BAD" ]
+    run -0 xclip -o -selection clipboard -target TARGETS
+    [ "${lines[0]}" = "TARGETS" ]
+    [ "${lines[1]}" = "text/plain" ]
+    [ "${lines[2]}" = "text" ]
+    [ "${lines[3]}" = "text/html" ]
+    run -0 xclip -o -selection clipboard
+    [ "$output" = "GOOD" ]
+    run -0 xclip -o -selection clipboard -target "text/html"
+    [ "$output" = "BAD" ]
 
-#     # Test primary selection
-#     "$RICHCLIP" copy -p 3>&- < "$TEST_DATA_DIR/test_data_0"
-#     run -0 wl-paste -p
-#     [ "$output" = "GOOD" ]
-#     run -0 wl-paste -p -t "text/html"
-#     [ "$output" = "BAD" ]
-# }
+    # Test primary selection
+    "$RICHCLIP" copy -p 3>&- < "$TEST_DATA_DIR/test_data_0"
+    run -0 xclip -o -selection primary
+    [ "$output" = "GOOD" ]
+    run -0 xclip -o -selection primary -target "text/html"
+    [ "$output" = "BAD" ]
+}

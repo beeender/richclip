@@ -48,7 +48,11 @@ pub(super) fn decide_mime_type(preferred: &str, supported: &Vec<String>) -> Resu
         log::debug!("{}", s);
     }
 
-    if preferred.is_empty() || preferred.eq_ignore_ascii_case("text") {
+    if preferred.is_empty()
+        || preferred.eq_ignore_ascii_case("text")
+        || preferred.eq_ignore_ascii_case("UTF8_STRING")
+    {
+        // Assume the normal text is requested
         if let Some(ret) = try_any_text(supported) {
             log::debug!("Use mime-type '{}'", ret);
             return Ok(ret);

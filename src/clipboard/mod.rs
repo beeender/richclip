@@ -2,9 +2,9 @@ mod mime_type;
 mod wayland;
 mod x;
 
+use super::source_data::SourceData;
 use std::io::Write;
 use std::os::fd::AsFd;
-use super::source_data::SourceData;
 
 pub struct PasteConfig<'a, T: AsFd + Write> {
     // Only list mime-types
@@ -16,8 +16,8 @@ pub struct PasteConfig<'a, T: AsFd + Write> {
 
 pub struct CopyConfig<T: SourceData> {
     pub use_primary: bool,
-    pub source_data: T
+    pub source_data: T,
 }
 
 pub use wayland::{copy_wayland, paste_wayland};
-pub use x::{paste_x};
+pub use x::{copy_x, paste_x};

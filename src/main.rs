@@ -119,7 +119,12 @@ fn do_copy(arg_matches: &ArgMatches) {
         source_data,
         use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
     };
-    clipboard::copy_wayland(copy_config).expect("Failed to copy to wayland clipboard")
+    match choose_backend() {
+        Backend::Wayland => {
+            clipboard::copy_wayland(copy_config).expect("Failed to copy to wayland clipboard")
+        }
+        Backend::X => clipboard::copy_x(copy_config).expect("Failed to copy to wayland clipboard"),
+    }
 }
 
 fn do_paste(arg_matches: &ArgMatches) {
@@ -134,8 +139,10 @@ fn do_paste(arg_matches: &ArgMatches) {
         expected_mime_type: t.to_string(),
     };
     match choose_backend() {
-        Backend::Wayland => clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard"),
-        Backend::X => clipboard::paste_x(cfg).expect("Failed to paste from X clipboard")
+        Backend::Wayland => {
+            clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard")
+        }
+        Backend::X => clipboard::paste_x(cfg).expect("Failed to paste from X clipboard"),
     }
 }
 
