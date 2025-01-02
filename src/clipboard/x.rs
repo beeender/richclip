@@ -3,6 +3,7 @@ use super::CopyConfig;
 use super::PasteConfig;
 use crate::protocol::SourceData;
 use anyhow::{bail, Context, Result};
+use std::collections::hash_map::HashMap;
 use std::io::Write;
 use std::os::fd::AsFd;
 use std::rc::Rc;
@@ -10,8 +11,9 @@ use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::connection::RequestConnection;
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ConnectionExt, CreateWindowAux, EventMask, GetPropertyReply, PropMode,
-    SelectionNotifyEvent, WindowClass, SELECTION_NOTIFY_EVENT,
+    Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt, CreateWindowAux, EventMask,
+    GetPropertyReply, PropMode, Property, SelectionNotifyEvent, SelectionRequestEvent, Window,
+    WindowClass, SELECTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -46,8 +48,158 @@ struct XPasteState<'a, T: AsFd + Write> {
     selection: Atom,
 }
 
+#[derive(PartialEq)]
+enum TransferResult {
+    Done,
+    Continue,
+}
+
+// To handle both normal selection sending and INCR mode sending.
+struct XSelectionSender {
+    requestor: Window,
+    // Clipboard or Primary
+    selection: Atom,
+    // Target AKA mime-types.
+    target: Atom,
+    // Identifier created by the receiver
+    property: Atom,
+    // The content type, for 'TARGETS', it is 'ATOM'. Otherwise it will be the same as target
+    content_type: Atom,
+    // The reference to the actual data
+    content: Rc<Vec<u8>>,
+    // If the data need to be sent in INCR mode
+    chunk_size: usize,
+    // The current content offset for INCR mode. Initialized with MAX value.
+    offset: usize,
+}
+
 struct XCopyState<'a> {
     source_data: &'a dyn SourceData,
+    ongoing_senders: HashMap<Window, XSelectionSender>,
+}
+
+impl XSelectionSender {
+    fn new(
+        client: &XClient,
+        event: &SelectionRequestEvent,
+        content_type: Atom,
+        content: Rc<Vec<u8>>,
+    ) -> Self {
+        XSelectionSender {
+            requestor: event.requestor,
+            selection: event.selection,
+            target: event.target,
+            property: event.property,
+            content_type,
+            content,
+            chunk_size: Self::get_chunk_size(&client.conn),
+            offset: usize::MAX,
+        }
+    }
+
+    fn get_chunk_size(conn: &RustConnection) -> usize {
+        // See xclip.c::xcin()
+        conn.maximum_request_bytes() / 4
+    }
+
+    // The sending is actually calling X window change_property API, and the other side could use
+    // get_property to retrieve the data.
+    fn change_property_to_send(&mut self, conn: &RustConnection) -> Result<()> {
+        log::debug!(
+            "change_property_to_send total length {}, offset {}",
+            self.content.len(),
+            self.offset
+        );
+        let left_bytes = self.content.len() - self.offset;
+        let end_pos = if self.chunk_size > left_bytes {
+            self.offset + left_bytes
+        } else {
+            self.offset + self.chunk_size
+        };
+        let to_send = &self.content[self.offset..end_pos];
+
+        conn.change_property8(
+            PropMode::REPLACE,
+            self.requestor,
+            self.property,
+            self.content_type,
+            to_send,
+        )?;
+        self.offset = end_pos;
+        Ok(())
+    }
+
+    fn send(&mut self, client: &XClient, time: u32) -> Result<TransferResult> {
+        if self.chunk_size > self.content.len() {
+            self.offset = 0;
+            self.change_property_to_send(&client.conn)?;
+            client.conn.send_event(
+                false,
+                self.requestor,
+                EventMask::default(),
+                SelectionNotifyEvent {
+                    response_type: SELECTION_NOTIFY_EVENT,
+                    sequence: 0,
+                    time,
+                    requestor: self.requestor,
+                    selection: self.selection,
+                    target: self.target,
+                    property: self.property,
+                },
+            )?;
+            client.conn.flush()?;
+            return Ok(TransferResult::Done);
+        } else if self.offset == usize::MAX {
+            return self.send_incr_begin(client, time);
+        }
+
+        self.send_incr(client)
+    }
+
+    fn send_incr_begin(&mut self, client: &XClient, time: u32) -> Result<TransferResult> {
+        log::debug!("send_incr_begin");
+        self.offset = 0;
+        // To subscribe the PropertyNotify event
+        client.conn.change_window_attributes(
+            self.requestor,
+            &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+        )?;
+        client.conn.change_property32(
+            PropMode::REPLACE,
+            self.requestor,
+            self.property,
+            client.atoms.INCR,
+            &[0],
+        )?;
+        client.conn.send_event(
+            false,
+            self.requestor,
+            EventMask::default(),
+            SelectionNotifyEvent {
+                response_type: SELECTION_NOTIFY_EVENT,
+                sequence: 0,
+                time,
+                requestor: self.requestor,
+                selection: self.selection,
+                target: self.target,
+                property: self.property,
+            },
+        )?;
+        client.conn.flush()?;
+        Ok(TransferResult::Continue)
+    }
+
+    fn send_incr(&mut self, client: &XClient) -> Result<TransferResult> {
+        log::debug!("send_incr");
+        self.change_property_to_send(&client.conn)?;
+        client.conn.flush()?;
+        if self.offset > self.content.len() {
+            log::debug!("send_incr finished");
+            Ok(TransferResult::Done)
+        } else {
+            Ok(TransferResult::Continue)
+        }
+    }
 }
 
 fn get_atom_id_by_name(conn: &RustConnection, name: &str) -> Result<Atom> {
@@ -255,8 +407,9 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
 }
 
 pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
-    let state = XCopyState {
+    let mut state = XCopyState {
         source_data: &config.source_data,
+        ongoing_senders: HashMap::new(),
     };
     let client = create_x_client(None)?;
 
@@ -281,16 +434,22 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
             .context("Failed to get X event")?;
         match event {
             Event::SelectionRequest(event) => {
-                log::debug!("Received SelectionRequest with target {}", event.target);
-                log::debug!("xxxx {}", client.conn.maximum_request_bytes());
+                log::debug!(
+                    "Received SelectionRequest with target {} from requestor {}",
+                    event.target,
+                    event.requestor
+                );
                 if event.target == client.atoms.TARGETS {
-                    // Ask for suppoted mime-types
+                    // Ask for supported mime-types
                     // 'TARGETS' should always be the first supported target (mime-type)
                     let mut atoms = vec![client.atoms.TARGETS];
                     atoms.extend(mime_types_to_atoms(
                         &client.conn,
                         &state.source_data.mime_types(),
                     ));
+                    // In theory, sending TARGETS could cause INCR transfer as well.
+                    // However, that requires some complex generic handling for XSelectionSender
+                    // which I failed to implement nicely.
                     client.conn.change_property32(
                         PropMode::REPLACE,
                         event.requestor,
@@ -298,6 +457,21 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
                         client.atoms.ATOM,
                         &atoms,
                     )?;
+                    client.conn.send_event(
+                        false,
+                        event.requestor,
+                        EventMask::default(),
+                        SelectionNotifyEvent {
+                            response_type: SELECTION_NOTIFY_EVENT,
+                            sequence: 0,
+                            time: event.time,
+                            requestor: event.requestor,
+                            selection: event.selection,
+                            target: event.target,
+                            property: event.property,
+                        },
+                    )?;
+                    client.conn.flush()?;
                 } else {
                     // Ask the content of the clipboard
                     let content = match decide_mime_type_with_atom(
@@ -306,9 +480,7 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
                         &state.source_data.mime_types(),
                     ) {
                         Ok(mime_type_str) => {
-                            state
-                                .source_data
-                                .content_by_mime_type(&mime_type_str).1
+                            state.source_data.content_by_mime_type(&mime_type_str).1
                         }
                         Err(e) => {
                             log::debug!(
@@ -319,35 +491,38 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
                             Rc::new(Vec::<u8>::new())
                         }
                     };
-                    client.conn.change_property8(
-                        PropMode::REPLACE,
-                        event.requestor,
-                        event.property,
-                        event.target,
-                        &content,
-                    )?;
+                    let mut sender = XSelectionSender::new(&client, &event, event.target, content);
+                    if sender.send(&client, event.time)? == TransferResult::Continue {
+                        state.ongoing_senders.insert(event.requestor, sender);
+                    }
                 }
-                client.conn.send_event(
-                    false,
-                    event.requestor,
-                    EventMask::default(),
-                    SelectionNotifyEvent {
-                        response_type: SELECTION_NOTIFY_EVENT,
-                        sequence: 0,
-                        time: event.time,
-                        requestor: event.requestor,
-                        selection: event.selection,
-                        target: event.target,
-                        property: event.property,
-                    },
-                )?;
-                client.conn.flush()?;
+            }
+            Event::PropertyNotify(event) => {
+                log::debug!(
+                    "Received PropertyNotify from window {}, state {}",
+                    event.window,
+                    u8::from(event.state)
+                );
+                if event.state != Property::DELETE {
+                    // DELETE means the other side is ready for the next chunk of data.
+                    continue;
+                };
+                if let Some(sender) = state.ongoing_senders.get_mut(&event.window) {
+                    if sender.send(&client, event.time)? == TransferResult::Done {
+                        // INCR finished
+                        state.ongoing_senders.remove(&event.window);
+                    }
+                } else {
+                    // Should not happen
+                    log::error!("Couldn't find the sender");
+                }
             }
             Event::SelectionClear(_) => {
                 log::debug!("Received SelectionClear");
                 break;
             }
-            _ => {
+            event => {
+                log::debug!("Unhandled event {event:?}");
                 break;
             }
         }
