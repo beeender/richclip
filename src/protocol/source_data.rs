@@ -1,18 +1,21 @@
+use std::rc::Rc;
 
 pub struct SourceDataItem {
     pub mime_type: Vec<String>,
-    pub content: Vec<u8>,
+    pub content: Rc<Vec<u8>>,
 }
 
 pub trait SourceData {
-    fn content_by_mime_type(&self, mime_type: &str) -> Option<&Vec<u8>>;
-    // TODO: Can we have something like below to avoid copying?
-    //fn mime_types_for_each(&self, f: &Fn(&String));
+    /// Find the best match of the content of the mime_type.
+    /// `(result, content)` is returned where the `result` will be false if no content matches
+    /// the `mime_type`. In such case content will be an empty vector.
+    fn content_by_mime_type(&self, mime_type: &str) -> (bool, Rc<Vec<u8>>);
+    /// Returns all supported mime-types.
     fn mime_types(&self) -> Vec<String>;
 }
 
 impl SourceData for Vec<SourceDataItem> {
-    fn content_by_mime_type(&self, mime_type: &str) -> Option<&Vec<u8>> {
+    fn content_by_mime_type(&self, mime_type: &str) -> (bool, Rc<Vec<u8>>) {
         log::debug!("content_by_mime_type was called with '{}'", mime_type);
         let mut filter_it = self
             .iter()
@@ -27,8 +30,11 @@ impl SourceData for Vec<SourceDataItem> {
             .peekable();
 
         match filter_it.peek() {
-            Some(src_data) => Some(&src_data.content),
-            _ => None,
+            Some(src_data) => (true, src_data.content.clone()),
+            _ => {
+                log::debug!("The required mime_type '{mime_type}' is not supported");
+                (false, Rc::new(vec![]))
+            }
         }
     }
 
@@ -62,13 +68,17 @@ mod tests {
             ];
         let r = receive_data(&mut &buf[..]).unwrap();
 
-        let content = r.content_by_mime_type("text/plain").unwrap();
+        let (result, content) = r.content_by_mime_type("text/plain");
+        assert!(result);
         assert_eq!(content.as_slice(), b"GOOD");
-        let content = r.content_by_mime_type("text").unwrap();
+        let (result, content) = r.content_by_mime_type("text");
+        assert!(result);
         assert_eq!(content.as_slice(), b"GOOD");
-        let content = r.content_by_mime_type("html").unwrap();
+        let (result, content) = r.content_by_mime_type("html");
+        assert!(result);
         assert_eq!(content.as_slice(), b"BAD");
-        let content = r.content_by_mime_type("no_mime");
-        assert!(content.is_none());
+        let (result, content) = r.content_by_mime_type("no_mime");
+        assert!(!result);
+        assert!(content.is_empty());
     }
 }

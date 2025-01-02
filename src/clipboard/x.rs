@@ -5,6 +5,7 @@ use crate::protocol::SourceData;
 use anyhow::{bail, Context, Result};
 use std::io::Write;
 use std::os::fd::AsFd;
+use std::rc::Rc;
 use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::connection::RequestConnection;
@@ -305,11 +306,9 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
                         &state.source_data.mime_types(),
                     ) {
                         Ok(mime_type_str) => {
-                            // FIXME: unwrap
                             state
                                 .source_data
-                                .content_by_mime_type(&mime_type_str)
-                                .unwrap()
+                                .content_by_mime_type(&mime_type_str).1
                         }
                         Err(e) => {
                             log::debug!(
@@ -317,7 +316,7 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
                                 e
                             );
                             // Cannot find content, reply empty
-                            &Vec::<u8>::new()
+                            Rc::new(Vec::<u8>::new())
                         }
                     };
                     client.conn.change_property8(
@@ -325,7 +324,7 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
                         event.requestor,
                         event.property,
                         event.target,
-                        content,
+                        &content,
                     )?;
                 }
                 client.conn.send_event(

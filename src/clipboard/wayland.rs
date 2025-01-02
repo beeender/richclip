@@ -266,10 +266,9 @@ fn wl_source_cb_for_copy(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>)
             log::debug!("Received 'Send' event");
             let src_data = ctx.state.source_data;
             let mut file = File::from(fd);
-            let content = src_data
-                .content_by_mime_type(mime_type.to_str().unwrap())
-                .unwrap();
-            file.write_all(content).unwrap();
+            let (_, content) = src_data
+                .content_by_mime_type(mime_type.to_str().unwrap());
+            file.write_all(&content).unwrap();
         }
         zwlr_data_control_source_v1::Event::Cancelled => {
             log::debug!("Received 'Cancelled' event");
