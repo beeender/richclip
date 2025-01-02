@@ -2,7 +2,7 @@ mod mime_type;
 mod wayland;
 mod x;
 
-use super::source_data::SourceData;
+use super::protocol::SourceData;
 use std::io::Write;
 use std::os::fd::AsFd;
 

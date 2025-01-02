@@ -1,7 +1,7 @@
 use super::mime_type::decide_mime_type;
 use super::PasteConfig;
 use super::CopyConfig;
-use crate::source_data::SourceData;
+use crate::protocol::SourceData;
 use anyhow::{Context, Error, Result, bail};
 use std::collections::HashMap;
 use std::ffi::CString;

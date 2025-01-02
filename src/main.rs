@@ -4,8 +4,7 @@ extern crate env_logger;
 extern crate log;
 
 mod clipboard;
-mod recv;
-mod source_data;
+mod protocol;
 
 use clap::{Arg, ArgMatches, Command};
 use daemonize::Daemonize;
@@ -94,7 +93,7 @@ fn main() {
 
 fn do_copy(arg_matches: &ArgMatches) {
     let stdin = stdin();
-    let source_data = recv::receive_data(&stdin).unwrap();
+    let source_data = protocol::receive_data(&stdin).unwrap();
 
     // Move to background. We fork our process and leave the child running in the background, while
     // exiting in the parent. We also replace stdin/stdout with /dev/null so the stdout file

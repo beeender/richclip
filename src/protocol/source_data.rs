@@ -1,3 +1,4 @@
+
 pub struct SourceDataItem {
     pub mime_type: Vec<String>,
     pub content: Vec<u8>,
@@ -45,8 +46,8 @@ impl SourceData for Vec<SourceDataItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::recv::receive_data;
-    use crate::recv::PROTOCAL_VER;
+    use crate::protocol::receive_data;
+    use crate::protocol::PROTOCAL_VER;
 
     #[test]
     fn test_content_by_mime_type() {

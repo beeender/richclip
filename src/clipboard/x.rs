@@ -1,7 +1,7 @@
 use super::mime_type::decide_mime_type;
 use super::CopyConfig;
 use super::PasteConfig;
-use crate::source_data::SourceData;
+use crate::protocol::SourceData;
 use anyhow::{bail, Context, Result};
 use std::io::Write;
 use std::os::fd::AsFd;
