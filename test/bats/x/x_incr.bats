@@ -1,30 +1,16 @@
 #!/usr/bin/env bats
 bats_require_minimum_version 1.5.0
 
-ROOT_DIR=$(realpath "$BATS_TEST_DIRNAME/../..")
-TEST_DATA_DIR=$(realpath "$BATS_TEST_DIRNAME/../data")
+ROOT_DIR=$(realpath "$BATS_TEST_DIRNAME/../../..")
+TEST_DATA_DIR=$(realpath "$ROOT_DIR/test/data")
 # "cargo run" cannot be used since it may mess up the output
 # If hardcode path creates problems, use:
 # https://github.com/rust-lang/cargo/issues/7895#issuecomment-2323050826
 RICHCLIP="$ROOT_DIR/target/debug/richclip"
-XVFB_PID=""
 
-setup_file() {
-    if [ -n "$WAYLAND_DISPLAY" ] || [ -z "$DISPLAY" ]; then
-        unset WAYLAND_DISPLAY
-        export DISPLAY=":42"
-        # Start a headless X server for testing
-        Xvfb $DISPLAY 3>&- &
-        XVFB_PID=$!
-        sleep 1
-    fi
-    run -0 cargo build
-}
-
-teardown_file() {
-    if [ -n "$XVFB_PID" ]; then
-        kill "$XVFB_PID"
-    fi
+teardown() {
+    killall -w xclip || echo ""
+    killall -w richclip || echo ""
 }
 
 @test "X INCR copy works for xclip" {

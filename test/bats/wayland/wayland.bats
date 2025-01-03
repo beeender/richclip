@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 bats_require_minimum_version 1.5.0
 
-ROOT_DIR=$(realpath "$BATS_TEST_DIRNAME/../..")
-TEST_DATA_DIR=$(realpath "$BATS_TEST_DIRNAME/../data")
+ROOT_DIR=$(realpath "$BATS_TEST_DIRNAME/../../..")
+TEST_DATA_DIR=$(realpath "$ROOT_DIR/test/data")
 # "cargo run" cannot be used since it may mess up the output
 # If hardcode path creates problems, use:
 # https://github.com/rust-lang/cargo/issues/7895#issuecomment-2323050826
@@ -16,8 +16,8 @@ setup_file() {
 }
 
 teardown() {
-    killall wl-copy > /dev/null || echo ""
-    killall richclip > /dev/null || echo ""
+    killall -w wl-copy > /dev/null || echo ""
+    killall -w richclip > /dev/null || echo ""
 }
 
 @test "wayland paste simple data" {
