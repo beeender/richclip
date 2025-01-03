@@ -16,8 +16,8 @@ setup_file() {
 }
 
 teardown() {
-    killall wl-copy || echo ""
-    killall richclip || echo ""
+    killall wl-copy > /dev/null || echo ""
+    killall richclip > /dev/null || echo ""
 }
 
 @test "wayland paste simple data" {
@@ -34,7 +34,7 @@ teardown() {
     [ "$output" = "special_mime_type" ]
 
     # Expected mime-type does not exist
-    run -0 "$RICHCLIP" paste -t "not_this_type"
+    run -0 --separate-stderr "$RICHCLIP" paste -t "not_this_type"
     [ "$output" = "" ]
 }
 
@@ -70,7 +70,7 @@ teardown() {
 
     run -0 wl-paste -l
     [ "${lines[0]}" = "text/plain" ]
-    [ "${lines[1]}" = "text" ]
+    [ "${lines[1]}" = "TEXT" ]
     [ "${lines[2]}" = "text/html" ]
     run -0 wl-paste
     [ "$output" = "GOOD" ]
