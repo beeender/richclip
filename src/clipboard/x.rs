@@ -25,7 +25,7 @@ atom_manager! {
         // For the selection type
         PRIMARY,
         CLIPBOARD,
-        // For slection content mime-type, AKA the target
+        // For selection content mime-type, AKA the target
         TARGETS,
         // Our defined atom for getting prop
         XCLIP_TARGETS,
