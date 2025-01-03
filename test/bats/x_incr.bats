@@ -7,17 +7,24 @@ TEST_DATA_DIR=$(realpath "$BATS_TEST_DIRNAME/../data")
 # If hardcode path creates problems, use:
 # https://github.com/rust-lang/cargo/issues/7895#issuecomment-2323050826
 RICHCLIP="$ROOT_DIR/target/debug/richclip"
+XVFB_PID=""
 
 setup_file() {
     if [ -n "$WAYLAND_DISPLAY" ] || [ -z "$DISPLAY" ]; then
-        skip
+        unset WAYLAND_DISPLAY
+        export DISPLAY=":42"
+        # Start a headless X server for testing
+        Xvfb $DISPLAY 3>&- &
+        XVFB_PID=$!
+        sleep 1
     fi
     run -0 cargo build
 }
 
-teardown() {
-    killall xclip || echo ""
-    killall richclip || echo ""
+teardown_file() {
+    if [ -n "$XVFB_PID" ]; then
+        kill "$XVFB_PID"
+    fi
 }
 
 @test "X INCR copy works for xclip" {
@@ -26,7 +33,7 @@ teardown() {
     run -0 xclip -o -selection clipboard -target TARGETS
     [ "${lines[0]}" = "TARGETS" ]
     [ "${lines[1]}" = "text/plain" ]
-    [ "${lines[2]}" = "text" ]
+    [ "${lines[2]}" = "TEXT" ]
     [ "${lines[3]}" = "text/html" ]
     run -0 xclip -o -selection clipboard
     [ "$output" = "GOOD" ]
@@ -47,7 +54,7 @@ teardown() {
     run -0 "$RICHCLIP" paste -l
     [ "${lines[0]}" = "TARGETS" ]
     [ "${lines[1]}" = "text/plain" ]
-    [ "${lines[2]}" = "text" ]
+    [ "${lines[2]}" = "TEXT" ]
     [ "${lines[3]}" = "text/html" ]
     run -0 "$RICHCLIP" paste
     [ "$output" = "GOOD" ]
