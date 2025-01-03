@@ -103,6 +103,7 @@ impl XSelectionSender {
         event: &SelectionRequestEvent,
         content_type: Atom,
         content: Rc<Vec<u8>>,
+        chunk_size: u32,
     ) -> Self {
         XSelectionSender {
             requestor: event.requestor,
@@ -693,7 +694,13 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
                             Rc::new(Vec::<u8>::new())
                         }
                     };
-                    let mut sender = XSelectionSender::new(&client, &event, event.target, content);
+                    let mut sender = XSelectionSender::new(
+                        &client,
+                        &event,
+                        event.target,
+                        content,
+                        config.x_chunk_size,
+                    );
                     if sender.send(&client, event.time)? == TransferResult::Continue {
                         state.ongoing_senders.insert(event.requestor, sender);
                     }

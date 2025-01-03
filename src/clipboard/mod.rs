@@ -17,6 +17,8 @@ pub struct PasteConfig<'a, T: AsFd + Write> {
 pub struct CopyConfig<T: SourceData> {
     pub use_primary: bool,
     pub source_data: T,
+    // For testing X INCR mode
+    pub x_chunk_size: u32
 }
 
 pub use wayland::{copy_wayland, paste_wayland};

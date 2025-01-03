@@ -45,6 +45,14 @@ fn cli() -> Command {
                         .num_args(0)
                         .help("Use the 'primary' clipboard")
                 )
+            .arg(
+                    Arg::new("chunk-size")
+                        .long("chunk-size")
+                        .required(false)
+                        .hide(true)
+                        .num_args(1)
+                        .help("For testing X INCR mode")
+                )
         )
         .subcommand(
             Command::new("paste")
@@ -117,6 +125,7 @@ fn do_copy(arg_matches: &ArgMatches) {
     let copy_config = clipboard::CopyConfig {
         source_data,
         use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
+        x_chunk_size: *arg_matches.get_one::<u32>("chunk-size").unwrap_or(&0),
     };
     match choose_backend() {
         Backend::Wayland => {
