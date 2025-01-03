@@ -56,6 +56,7 @@ fn cli() -> Command {
                     Arg::new("chunk-size")
                         .long("chunk-size")
                         .value_parser(value_parser!(usize))
+                        .default_value("0")
                         .required(false)
                         .hide(true)
                         .num_args(1)
