@@ -9,6 +9,10 @@ TEST_DATA_DIR=$(realpath "$ROOT_DIR/test/data")
 RICHCLIP="$ROOT_DIR/target/debug/richclip"
 
 setup_file() {
+    # Currently there is no way to test this on CI like what we do for X window. The Headless
+    # weston could be an option. However, it doesn't have wl-seat for the headless mode. See:
+    # https://gitlab.freedesktop.org/wayland/weston/-/merge_requests/209
+    # https://gitlab.freedesktop.org/wayland/weston/-/issues/294
     if [ -z "$WAYLAND_DISPLAY" ]; then
         skip
     fi
