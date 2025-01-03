@@ -46,6 +46,13 @@ fn cli() -> Command {
                         .help("Use the 'primary' clipboard")
                 )
             .arg(
+                    Arg::new("foreground")
+                        .long("foreground")
+                        .required(false)
+                        .num_args(0)
+                        .help("Run in foreground")
+                )
+            .arg(
                     Arg::new("chunk-size")
                         .long("chunk-size")
                         .value_parser(value_parser!(usize))
@@ -103,6 +110,8 @@ fn main() {
 fn do_copy(arg_matches: &ArgMatches) {
     let stdin = stdin();
     let source_data = protocol::receive_data(&stdin).unwrap();
+    //let foreground = *arg_matches.get_one::<bool>("foreground").unwrap();
+    let foreground = true;
 
     // Move to background. We fork our process and leave the child running in the background, while
     // exiting in the parent. We also replace stdin/stdout with /dev/null so the stdout file
@@ -111,22 +120,25 @@ fn do_copy(arg_matches: &ArgMatches) {
     // The above is copied from wl-clipboard.
     let in_null = File::create("/dev/null").unwrap();
     let out_null = File::create("/dev/null").unwrap();
-    let daemonize = Daemonize::new()
-        .working_directory("/") // prevent blocking fs from being unmounted.
-        .stdout(in_null)
-        .stderr(out_null);
 
-    // wl-clipboard does this
-    ignore_sighub();
-    match daemonize.start() {
-        Ok(_) => println!("Success, daemonized"),
-        Err(e) => eprintln!("Error, {}", e),
+    if ! foreground {
+        let daemonize = Daemonize::new()
+            .working_directory("/") // prevent blocking fs from being unmounted.
+            .stdout(in_null)
+            .stderr(out_null);
+
+        // wl-clipboard does this
+        ignore_sighub();
+        match daemonize.start() {
+            Ok(_) => println!("Success, daemonized"),
+            Err(e) => eprintln!("Error, {}", e),
+        }
     }
 
     let copy_config = clipboard::CopyConfig {
         source_data,
         use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
-        x_chunk_size: *arg_matches.get_one::<usize>("chunk-size").unwrap_or(&0),
+        x_chunk_size: *arg_matches.get_one::<usize>("chunk-size").unwrap(),
     };
     match choose_backend() {
         Backend::Wayland => {
