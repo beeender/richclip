@@ -38,7 +38,7 @@ pub fn receive_data(mut reader: impl Read) -> Result<Vec<SourceDataItem>> {
         match flag[0] {
             b'M' => {
                 let mime_type = read_mime_types(&mut reader)?;
-                type_list.push(mime_type.to_lowercase());
+                type_list.push(mime_type);
             }
             b'C' => {
                 if type_list.is_empty() {
@@ -174,7 +174,7 @@ mod tests {
         let data1 = &r[0];
         assert_eq!(data1.mime_type.len(), 2);
         assert_eq!(data1.mime_type[0], "text/plain");
-        assert_eq!(data1.mime_type[1], "text");
+        assert_eq!(data1.mime_type[1], "TEXT");
         assert_eq!(data1.content.as_slice(), b"GOOD");
         let data2 = &r[1];
         assert_eq!(data2.mime_type.len(), 1);
