@@ -6,7 +6,7 @@ extern crate log;
 mod clipboard;
 mod protocol;
 
-use clap::{Arg, ArgMatches, Command};
+use clap::{Arg, ArgMatches, Command, value_parser};
 use daemonize::Daemonize;
 use std::fs::File;
 use std::io::{stdin, stdout};
@@ -48,6 +48,7 @@ fn cli() -> Command {
             .arg(
                     Arg::new("chunk-size")
                         .long("chunk-size")
+                        .value_parser(value_parser!(usize))
                         .required(false)
                         .hide(true)
                         .num_args(1)
