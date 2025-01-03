@@ -439,6 +439,8 @@ fn create_x_client(display_name: Option<&str>) -> Result<XClient> {
     let screen = &conn.setup().roots[screen_num];
     let win_id = conn.generate_id()?;
 
+    log::debug!("Create X client, win_id {win_id}");
+
     conn.create_window(
         COPY_DEPTH_FROM_PARENT,
         win_id,
