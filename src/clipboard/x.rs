@@ -11,9 +11,9 @@ use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::connection::RequestConnection;
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt, CreateWindowAux, EventMask,
-    GetPropertyReply, PropMode, Property, SelectionNotifyEvent, SelectionRequestEvent, Window,
-    WindowClass, SELECTION_NOTIFY_EVENT,
+    Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt, CreateWindowAux, EventMask, PropMode,
+    Property, SelectionNotifyEvent, SelectionRequestEvent, Window, WindowClass,
+    SELECTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -28,6 +28,7 @@ atom_manager! {
         // For slection content mime-type, AKA the target
         TARGETS,
         // Our defined atom for getting prop
+        XCLIP_TARGETS,
         XCLIP_OUT,
         // Others
         INCR,
@@ -46,11 +47,16 @@ struct XPasteState<'a, T: AsFd + Write> {
     config: PasteConfig<'a, T>,
     // Translate the config.primary
     selection: Atom,
+    receiver: Option<XSelectionReceiver<u8>>,
 }
 
+// For the INCR process, see:
+// https://x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html#incr_properties
 #[derive(PartialEq)]
 enum TransferResult {
+    // Transfer finished
     Done,
+    // More data is coming, for INCR mode
     Continue,
 }
 
@@ -71,6 +77,19 @@ struct XSelectionSender {
     chunk_size: usize,
     // The current content offset for INCR mode. Initialized with MAX value.
     offset: usize,
+}
+
+struct XSelectionReceiver<T> {
+    receiver: Window,
+    property: Atom,
+    expected_type: Atom,
+
+    // buffer and chunk_size only matter when receiving the target. The selection content will be
+    // directly write to the output.
+    buffer: Vec<T>,
+    chunk_size: u32,
+    // INCR flag
+    is_incr: bool,
 }
 
 struct XCopyState<'a> {
@@ -202,6 +221,152 @@ impl XSelectionSender {
     }
 }
 
+impl<T> XSelectionReceiver<T> {
+    fn new(receiver: Window, property: Atom, expected_type: Atom) -> Self {
+        const DEFAULT_CHUNK_SIZE: u32 = 1024 * 1024 * 16;
+        XSelectionReceiver {
+            receiver,
+            property,
+            expected_type,
+            buffer: Vec::<T>::new(),
+            chunk_size: DEFAULT_CHUNK_SIZE,
+            is_incr: false,
+        }
+    }
+}
+
+// To receive the targets. INCR mode is not implemented and not needed for receiving TARGETS.
+impl XSelectionReceiver<u32> {
+    fn receive(&mut self, client: &XClient) -> Result<TransferResult> {
+        let reply = client
+            .conn
+            .get_property(
+                false,
+                self.receiver,
+                self.property,
+                self.expected_type,
+                0,
+                self.chunk_size,
+            )?
+            .reply()?;
+
+        if reply.type_ == client.atoms.INCR {
+            bail!("Receiving ATOMS TARGETS in INCR mode is not supported and should not happen");
+        }
+
+        if let Some(it) = reply.value32() {
+            for v in it {
+                self.buffer.push(v)
+            }
+        } else {
+            log::debug!("Empty property received")
+        }
+
+        Ok(TransferResult::Done)
+    }
+}
+
+impl XSelectionReceiver<u8> {
+    /// Receive selection data and directly write it to the output.
+    fn receive_and_write(
+        &mut self,
+        client: &XClient,
+        mut writer: impl Write,
+    ) -> Result<TransferResult> {
+        log::debug!(
+            "receive_and_write for property {}, incr mode {}",
+            get_atom_name_default(&client.conn, self.property),
+            self.is_incr
+        );
+        let reply = client
+            .conn
+            .get_property(
+                false,
+                self.receiver,
+                self.property,
+                self.expected_type,
+                0,
+                self.chunk_size,
+            )?
+            .reply()?;
+
+        log::debug!(
+            "reply type {}",
+            get_atom_name_default(&client.conn, reply.type_)
+        );
+        if reply.type_ == client.atoms.INCR {
+            log::debug!("Start INCR by deleting property");
+            self.is_incr = true;
+            client.conn.delete_property(self.receiver, self.property)?;
+            client.conn.flush()?;
+            return Ok(TransferResult::Continue);
+        }
+
+        writer
+            .write(&reply.value)
+            .context("Failed to write to the output")?;
+
+        Ok(TransferResult::Done)
+    }
+
+    fn receive_and_write_incr(
+        &mut self,
+        client: &XClient,
+        mut writer: impl Write,
+    ) -> Result<TransferResult> {
+        log::debug!(
+            "receive_and_write_incr for property {}, incr mode {}",
+            get_atom_name_default(&client.conn, self.property),
+            self.is_incr
+        );
+        if !self.is_incr {
+            // Wait SelectionNotify to set the incr flag
+            return Ok(TransferResult::Continue);
+        }
+
+        // Get the left bytes count
+        let reply = client
+            .conn
+            .get_property(false, self.receiver, self.property, AtomEnum::NONE, 0, 0)?
+            .reply()?;
+        let length = reply.bytes_after;
+        log::debug!("{} bytes to read", length);
+
+        if length == 0 {
+            log::debug!("No more data to receive. Delete the property to finish");
+            client.conn.delete_property(self.receiver, self.property)?;
+            writer.flush()?;
+            return Ok(TransferResult::Done);
+        }
+
+        // Retrieve data
+        let reply = client
+            .conn
+            .get_property(
+                true,
+                self.receiver,
+                self.property,
+                AtomEnum::NONE,
+                0,
+                length,
+            )?
+            .reply()?;
+        log::debug!(
+            "reply type {}, expected type {}",
+            get_atom_name_default(&client.conn, reply.type_),
+            get_atom_name_default(&client.conn, self.expected_type)
+        );
+        if reply.type_ != self.expected_type {
+            return Ok(TransferResult::Continue);
+        }
+        writer
+            .write(&reply.value)
+            .context("Failed to write to the output")?;
+
+        Ok(TransferResult::Continue)
+    }
+}
+
 fn get_atom_id_by_name(conn: &RustConnection, name: &str) -> Result<Atom> {
     let result = conn.intern_atom(false, name.as_bytes()).context("")?;
     let id = result.reply().context("")?;
@@ -214,20 +379,17 @@ fn get_atom_name(conn: &RustConnection, atom: Atom) -> Result<String> {
     Ok(str)
 }
 
-fn targets_to_strings(client: &mut XClient, reply: &GetPropertyReply) -> Result<Vec<String>> {
-    if reply.type_ != client.atoms.ATOM {
-        bail!(
-            "'TARGETS' selection returned an unexpected type {}",
-            reply.type_
-        );
-    }
+fn get_atom_name_default(conn: &RustConnection, atom: Atom) -> String {
+    get_atom_name(conn, atom).unwrap_or(format!("Unknown Atom {}", atom))
+}
 
+fn targets_to_strings(
+    client: &mut XClient,
+    receiver: &XSelectionReceiver<u32>,
+) -> Result<Vec<String>> {
     let mut ret = Vec::<String>::new();
-    let it = reply
-        .value32()
-        .context("'targets_to_strings' got reply with wrong value type")?;
-    for v in it {
-        match get_atom_name(&client.conn, v) {
+    for v in &receiver.buffer {
+        match get_atom_name(&client.conn, *v) {
             Ok(name) => {
                 ret.push(name);
             }
@@ -240,7 +402,7 @@ fn targets_to_strings(client: &mut XClient, reply: &GetPropertyReply) -> Result<
     Ok(ret)
 }
 
-fn mime_types_to_atoms(conn: &RustConnection, mime_types: &Vec<String>) -> Vec<u32> {
+fn mime_types_to_targets(conn: &RustConnection, mime_types: &Vec<String>) -> Vec<u32> {
     let mut ret = vec![];
     for str in mime_types {
         match get_atom_id_by_name(conn, str) {
@@ -302,6 +464,11 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
     } else {
         client.atoms.CLIPBOARD
     };
+    // Subscribe to PropertyNotify for INCR
+    client.conn.change_window_attributes(
+        client.win_id,
+        &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+    )?;
     // Use 'TARGETS' to list all supported mime-types of the clipboard content first
     client
         .conn
@@ -309,7 +476,7 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
             client.win_id,
             selection,
             client.atoms.TARGETS,
-            client.atoms.XCLIP_OUT,
+            client.atoms.XCLIP_TARGETS,
             CURRENT_TIME,
         )
         .context("Failed to call convert_selection to get 'TARGETS'")?;
@@ -319,6 +486,7 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
         supported_mime_types: None,
         config,
         selection,
+        receiver: None,
     };
 
     loop {
@@ -328,79 +496,113 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
             .context("Failed to get X event")?;
         match event {
             Event::SelectionNotify(event) => {
+                log::debug!(
+                    "SelectionNotify for selection {}, property {}",
+                    get_atom_name_default(&client.conn, event.selection),
+                    get_atom_name_default(&client.conn, event.property)
+                );
                 if event.selection != state.selection {
                     continue;
                 }
-                let reply = client
-                    .conn
-                    .get_property(
-                        false,
-                        client.win_id,
-                        client.atoms.XCLIP_OUT,
-                        AtomEnum::ANY,
-                        0,
-                        u32::MAX,
-                    )
-                    .context("get_property 'XCLIP_OUT' failed")?
-                    .reply()
-                    .context("'XCLIP_OUT' reply failed")?;
                 if state.supported_mime_types.is_none() {
-                    if reply.type_ == AtomEnum::NONE.into() {
-                        log::debug!(
-                            "Got None type reply which probably means the clipboard is empty"
-                        );
-                        break;
-                    }
-                    let mime_types = targets_to_strings(&mut client, &reply)
+                    // List all the supported TARGETS (mime-types) first
+                    let mut receiver = XSelectionReceiver::<u32>::new(
+                        client.win_id,
+                        client.atoms.XCLIP_TARGETS,
+                        client.atoms.ATOM,
+                    );
+                    receiver
+                        .receive(&client)
+                        .context("Failed to retrieve TARGETS")?;
+                    let mime_types = targets_to_strings(&mut client, &receiver)
                         .context("Failed to get supported targets")?;
                     if mime_types.is_empty() {
                         log::debug!("Got 0 targets which probably means the clipboard is empty");
-                        break;
+                        log::debug!(
+                            "Will try the expected mime-type {}",
+                            state.config.expected_mime_type
+                        );
+                        // Don't break the loop, try to retrieve with expected mime-type in case the
+                        // other side doesn't implement TARGETS correctly.
                     }
                     if state.config.list_types_only {
                         for line in mime_types {
-                            writeln!(state.config.fd_to_write, "{}", line)
+                            writeln!(&mut state.config.fd_to_write, "{}", line)
                                 .context("Failed to write to the output")?;
                         }
                         break;
-                    } else {
-                        let mime_type =
-                            decide_mime_type(&state.config.expected_mime_type, &mime_types)
-                                .unwrap_or("".to_string());
-                        if mime_type.is_empty() {
-                            log::debug!("Failed to decide mime type");
-                            break;
-                        }
-                        let target = get_atom_id_by_name(&client.conn, &mime_type)
-                            .context(format!("Failed to get atom id for '{}'", mime_type))?;
-                        state.supported_mime_types = Some(mime_types);
-                        client
-                            .conn
-                            .convert_selection(
-                                client.win_id,
-                                selection,
-                                target,
-                                client.atoms.XCLIP_OUT,
-                                CURRENT_TIME,
-                            )
-                            .context("Failed to call convert_selection to get 'TARGETS'")?;
-                        client.conn.flush().context("Failed to flush connection")?;
                     }
-                } else if reply.type_ == client.atoms.INCR {
-                    bail!("INCR has not been implemented")
+
+                    // Request to retrieve the selection content
+                    let mime_type = decide_mime_type(&state.config.expected_mime_type, &mime_types)
+                        .unwrap_or(state.config.expected_mime_type.clone());
+                    let target = get_atom_id_by_name(&client.conn, &mime_type)
+                        .context(format!("Failed to get atom id for '{}'", mime_type))?;
+                    client
+                        .conn
+                        .convert_selection(
+                            client.win_id,
+                            selection,
+                            target,
+                            client.atoms.XCLIP_OUT,
+                            CURRENT_TIME,
+                        )
+                        .context("Failed to call convert_selection to get 'TARGETS'")?;
+                    client.conn.flush()?;
+                    state.supported_mime_types = Some(mime_types);
+                    let content_receiver = XSelectionReceiver::<u8>::new(
+                        client.win_id,
+                        client.atoms.XCLIP_OUT,
+                        target,
+                    );
+                    state.receiver = Some(content_receiver);
                 } else {
-                    state
-                        .config
-                        .fd_to_write
-                        .write(&reply.value)
-                        .context("Failed to write to the output")?;
-                    break;
+                    match &mut state.receiver {
+                        Some(receiver) => {
+                            if receiver.receive_and_write(&client, &mut state.config.fd_to_write)?
+                                == TransferResult::Done
+                            {
+                                break;
+                            }
+                        }
+                        None => {
+                            log::debug!("SelectionNotify without an existing receiver.");
+                        }
+                    }
                 }
             }
-            Event::PropertyNotify(_) => {
-                bail!("INCR has not been implemented")
+            Event::PropertyNotify(event) => {
+                log::debug!(
+                    "PropertyNotify for property {}, state {}",
+                    get_atom_name_default(&client.conn, event.atom),
+                    u32::from(event.state)
+                );
+                if event.state != Property::NEW_VALUE {
+                    continue;
+                };
+                if event.atom != client.atoms.XCLIP_OUT {
+                    // Not the property we expect
+                    continue;
+                };
+                match &mut state.receiver {
+                    Some(receiver) => {
+                        if receiver
+                            .receive_and_write_incr(&client, &mut state.config.fd_to_write)?
+                            == TransferResult::Done
+                        {
+                            break;
+                        }
+                    }
+                    None => {
+                        log::debug!("Selection receiver doesn't exist");
+                        continue;
+                    }
+                }
             }
-            _ => {}
+            event => {
+                log::debug!("Unhandled event {event:?}");
+                break;
+            }
         }
     }
     Ok(())
@@ -436,14 +638,14 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
             Event::SelectionRequest(event) => {
                 log::debug!(
                     "Received SelectionRequest with target {} from requestor {}",
-                    event.target,
+                    get_atom_name_default(&client.conn, event.target),
                     event.requestor
                 );
                 if event.target == client.atoms.TARGETS {
                     // Ask for supported mime-types
                     // 'TARGETS' should always be the first supported target (mime-type)
                     let mut atoms = vec![client.atoms.TARGETS];
-                    atoms.extend(mime_types_to_atoms(
+                    atoms.extend(mime_types_to_targets(
                         &client.conn,
                         &state.source_data.mime_types(),
                     ));
@@ -523,7 +725,6 @@ pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
             }
             event => {
                 log::debug!("Unhandled event {event:?}");
-                break;
             }
         }
     }
