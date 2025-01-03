@@ -15,6 +15,11 @@ setup_file() {
     run -0 cargo build
 }
 
+teardown() {
+    killall wl-copy || echo ""
+    killall richclip || echo ""
+}
+
 @test "wayland paste simple data" {
     # Simple data
     wl-copy "TestDaTA" 3>&-

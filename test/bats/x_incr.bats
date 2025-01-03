@@ -15,6 +15,11 @@ setup_file() {
     run -0 cargo build
 }
 
+teardown() {
+    killall xclip || echo ""
+    killall richclip || echo ""
+}
+
 @test "X INCR copy works for xclip" {
     "$RICHCLIP" copy --chunk-size=1 3>&- < "$TEST_DATA_DIR/test_data_0"
 

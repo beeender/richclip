@@ -15,6 +15,11 @@ setup_file() {
     run -0 cargo build
 }
 
+teardown() {
+    killall xclip || echo ""
+    killall richclip || echo ""
+}
+
 @test "X paste simple data" {
     # Simple data
     echo "TestDaTA" | xclip -i -selection clipboard 3>&-
