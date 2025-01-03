@@ -34,6 +34,8 @@ setup_file() {
 }
 
 @test "X paste with empty clipbaord" {
+    # NOTE: This test fails with gnome, it seems the clipbaord is not empty after xclip getting
+    # killed
     # Empty clipbaord
     echo "TestDaTA" | xclip -i -selection clipboard 3>&-
     killall xclip

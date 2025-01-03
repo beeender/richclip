@@ -125,7 +125,7 @@ fn do_copy(arg_matches: &ArgMatches) {
     let copy_config = clipboard::CopyConfig {
         source_data,
         use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
-        x_chunk_size: *arg_matches.get_one::<u32>("chunk-size").unwrap_or(&0),
+        x_chunk_size: *arg_matches.get_one::<usize>("chunk-size").unwrap_or(&0),
     };
     match choose_backend() {
         Backend::Wayland => {

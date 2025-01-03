@@ -103,8 +103,14 @@ impl XSelectionSender {
         event: &SelectionRequestEvent,
         content_type: Atom,
         content: Rc<Vec<u8>>,
-        chunk_size: u32,
+        chunk_size: usize,
     ) -> Self {
+        let cs = if chunk_size == 0 {
+            Self::get_chunk_size(&client.conn)
+        } else {
+            chunk_size
+        };
+
         XSelectionSender {
             requestor: event.requestor,
             selection: event.selection,
@@ -112,7 +118,7 @@ impl XSelectionSender {
             property: event.property,
             content_type,
             content,
-            chunk_size: Self::get_chunk_size(&client.conn),
+            chunk_size: cs,
             offset: usize::MAX,
         }
     }
