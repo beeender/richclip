@@ -111,8 +111,7 @@ fn main() {
 fn do_copy(arg_matches: &ArgMatches) {
     let stdin = stdin();
     let source_data = protocol::receive_data(&stdin).unwrap();
-    //let foreground = *arg_matches.get_one::<bool>("foreground").unwrap();
-    let foreground = true;
+    let foreground = *arg_matches.get_one::<bool>("foreground").unwrap();
 
     // Move to background. We fork our process and leave the child running in the background, while
     // exiting in the parent. We also replace stdin/stdout with /dev/null so the stdout file
