@@ -16,10 +16,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Install xvfb
+    - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y xvfb
+        sudo apt-get install -y xvfb xclip
     - name: Setup Bats and bats libs
       id: setup-bats
       uses: bats-core/bats-action@3.0.0
