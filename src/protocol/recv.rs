@@ -6,6 +6,32 @@ static MAGIC: [u8; 4] = [0x20, 0x09, 0x02, 0x14];
 
 use super::source_data::SourceDataItem;
 
+/// Receive the mime-types and the content for the clipboard.
+/// It uses a simple protocol which defines as below:
+///
+/// 4 bytes
+/// | Item             | Bytes    | Content             |
+/// |------------------| :------- | :------------------ |
+/// | Magic            | 4        | 0x20 0x09 0x02 0x14 |
+/// | Protocol Version | 1        | 0x00                |
+/// | Section Type     | 1        | 'M'                 |
+/// | Section Length   | 4        | 0x00 0x00 0x00 0x0a |
+/// | Section Data     | 4        | "text/plain"        |
+/// | Section Type     | 1        | 'M'                 |
+/// | Section Length   | 4        | 0x00 0x00 0x00 0x04 |
+/// | Section Data     | 4        | "TEXT"              |
+/// | Section Type     | 1        | 'C'                 |
+/// | Section Length   | 4        | 0x00 0x00 0x00 0x09 |
+/// | Section Data     | 4        | "SOME Data"         |
+/// | Section Type     | 1        | 'M'                 |
+/// | Section Length   | 4        | 0x00 0x00 0x00 0x09 |
+/// | Section Data     | 4        | "text/html"         |
+/// | Section Type     | 1        | 'C'                 |
+/// | Section Length   | 4        | 0x00 0x00 0x00 0x09 |
+/// | Section Data     | 4        | "HTML code"         |
+/// - Every section starts with the section type, `M` (mime-type) or `C` (content).
+/// - Before `C` section, there must be one or more `M` section to indicate the data type.
+/// - Section length will be parsed as big-endian uint32 number.
 pub fn receive_data(mut reader: impl Read) -> Result<Vec<SourceDataItem>> {
     // Check magic header
     let mut magic = [0u8; 4];
