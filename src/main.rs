@@ -92,6 +92,10 @@ fn cli() -> Command {
                         .help("Use the 'primary' clipboard")
                 ),
         )
+        .subcommand(
+                Command::new("version")
+                .about("Print version info")
+        )
 }
 
 fn main() {
@@ -103,6 +107,13 @@ fn main() {
         }
         Some(("paste", sub_matches)) => {
             do_paste(sub_matches);
+        }
+        Some(("version", _)) => {
+            let ver = env!("CARGO_PKG_VERSION");
+            let git_desc = env!("VERGEN_GIT_DESCRIBE");
+            let build_date = env!("VERGEN_BUILD_DATE");
+            let target = env!("VERGEN_CARGO_TARGET_TRIPLE");
+            println!("richclip {ver} ({git_desc} {target} {build_date})");
         }
         _ => unreachable!(),
     }
