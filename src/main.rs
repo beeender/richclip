@@ -1,15 +1,17 @@
 extern crate clap;
 extern crate daemonize;
-extern crate env_logger;
 extern crate log;
+extern crate simplelog;
 
 mod clipboard;
 mod protocol;
 
-use clap::{Arg, ArgMatches, Command, value_parser};
+use clap::{value_parser, Arg, ArgMatches, Command};
 use daemonize::Daemonize;
+use std::env;
 use std::fs::File;
 use std::io::{stdin, stdout};
+use std::str::FromStr;
 
 enum Backend {
     Wayland,
@@ -98,8 +100,39 @@ fn cli() -> Command {
         )
 }
 
+fn init_logger() {
+    use simplelog::{
+        ColorChoice, CombinedLogger, ConfigBuilder, LevelFilter, SharedLogger, TermLogger,
+        TerminalMode, WriteLogger,
+    };
+
+    let log_path = env::var("RICHCLIP_LOG_FILE").unwrap_or("".to_string());
+    let level_str = env::var("RICHCLIP_LOG_LEVEL").unwrap_or("Warn".to_string());
+    let level = LevelFilter::from_str(&level_str).unwrap_or(log::LevelFilter::Warn);
+    let config = ConfigBuilder::default()
+        .set_time_offset_to_local()
+        .unwrap()
+        .build();
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![TermLogger::new(
+        level,
+        config.clone(),
+        TerminalMode::Mixed,
+        ColorChoice::Auto,
+    )];
+    if !log_path.is_empty() {
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .expect("Cannot open the log file at '$RICHCLIP_LOG_FILE'");
+        loggers.push(WriteLogger::new(LevelFilter::Debug, config, log_file));
+    }
+    CombinedLogger::init(loggers).unwrap();
+}
+
 fn main() {
-    env_logger::init();
+    init_logger();
+
     let matches = cli().get_matches();
     match matches.subcommand() {
         Some(("copy", sub_matches)) => {
@@ -129,14 +162,14 @@ fn do_copy(arg_matches: &ArgMatches) {
     // descriptor isn't kept alive, and chdir to the root, to prevent blocking file systems from
     // being unmounted.
     // The above is copied from wl-clipboard.
-    let in_null = File::create("/dev/null").unwrap();
     let out_null = File::create("/dev/null").unwrap();
+    let err_null = File::create("/dev/null").unwrap();
 
-    if ! foreground {
+    if !foreground {
         let daemonize = Daemonize::new()
             .working_directory("/") // prevent blocking fs from being unmounted.
-            .stdout(in_null)
-            .stderr(out_null);
+            .stdout(out_null)
+            .stderr(err_null);
 
         // wl-clipboard does this
         ignore_sighub();
