@@ -16,6 +16,7 @@ jobs:
         uses: rust-build/rust-build.action@v1.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          ARCHIVE_TYPES: tar.gz
         with:
           RUSTTARGET: ${{ matrix.target }}
           TOOLCHAIN_VERSION: 1.83.0
