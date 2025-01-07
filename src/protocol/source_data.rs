@@ -16,13 +16,17 @@ pub trait SourceData {
 
 impl SourceData for Vec<SourceDataItem> {
     fn content_by_mime_type(&self, mime_type: &str) -> (bool, Rc<Vec<u8>>) {
+        // TODO: Need a more flexible way to match text types.
         log::debug!("content_by_mime_type was called with '{}'", mime_type);
         let mut filter_it = self
             .iter()
             .filter(|item| {
                 item.mime_type
                     .iter()
-                    .filter(|mt| mt.contains(&mime_type.to_lowercase()))
+                    .filter(|mt| {
+                        log::debug!("check mime-type {mt}");
+                        mt.eq_ignore_ascii_case(mime_type)
+                    })
                     .peekable()
                     .peek()
                     .is_some()
@@ -74,7 +78,10 @@ mod tests {
         let (result, content) = r.content_by_mime_type("text");
         assert!(result);
         assert_eq!(content.as_slice(), b"GOOD");
-        let (result, content) = r.content_by_mime_type("html");
+        let (result, content) = r.content_by_mime_type("TEXT");
+        assert!(result);
+        assert_eq!(content.as_slice(), b"GOOD");
+        let (result, content) = r.content_by_mime_type("text/html");
         assert!(result);
         assert_eq!(content.as_slice(), b"BAD");
         let (result, content) = r.content_by_mime_type("no_mime");
