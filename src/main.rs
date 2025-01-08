@@ -6,6 +6,7 @@ extern crate simplelog;
 mod clipboard;
 mod protocol;
 
+use anyhow::{Context, Result};
 use clap::{value_parser, Arg, ArgMatches, Command};
 use daemonize::Daemonize;
 use std::env;
@@ -100,7 +101,7 @@ fn cli() -> Command {
         )
 }
 
-fn init_logger() {
+fn init_logger() -> Result<()> {
     use simplelog::{
         ColorChoice, CombinedLogger, ConfigBuilder, LevelFilter, SharedLogger, TermLogger,
         TerminalMode, WriteLogger,
@@ -111,7 +112,7 @@ fn init_logger() {
     let level = LevelFilter::from_str(&level_str).unwrap_or(log::LevelFilter::Warn);
     let config = ConfigBuilder::default()
         .set_time_offset_to_local()
-        .unwrap()
+        .expect("Failed to set time offset to local for loggers")
         .build();
     let mut loggers: Vec<Box<dyn SharedLogger>> = vec![TermLogger::new(
         level,
@@ -127,19 +128,20 @@ fn init_logger() {
             .expect("Cannot open the log file at '$RICHCLIP_LOG_FILE'");
         loggers.push(WriteLogger::new(LevelFilter::Debug, config, log_file));
     }
-    CombinedLogger::init(loggers).unwrap();
+    CombinedLogger::init(loggers).context("Failed to initialize loggers")?;
+    Ok(())
 }
 
-fn main() {
-    init_logger();
+fn main() -> Result<()> {
+    init_logger()?;
 
     let matches = cli().get_matches();
     match matches.subcommand() {
         Some(("copy", sub_matches)) => {
-            do_copy(sub_matches);
+            do_copy(sub_matches)?;
         }
         Some(("paste", sub_matches)) => {
-            do_paste(sub_matches);
+            do_paste(sub_matches)?;
         }
         Some(("version", _)) => {
             let ver = env!("CARGO_PKG_VERSION");
@@ -150,20 +152,24 @@ fn main() {
         }
         _ => unreachable!(),
     }
+
+    Ok(())
 }
 
-fn do_copy(arg_matches: &ArgMatches) {
+fn do_copy(arg_matches: &ArgMatches) -> Result<()> {
     let stdin = stdin();
-    let source_data = protocol::receive_data(&stdin).unwrap();
-    let foreground = *arg_matches.get_one::<bool>("foreground").unwrap();
+    let source_data = protocol::receive_data(&stdin).context("Failed to read data from stdin")?;
+    let foreground = *arg_matches
+        .get_one::<bool>("foreground")
+        .context("`--foreground` option is not specified for the `copy` command")?;
 
     // Move to background. We fork our process and leave the child running in the background, while
     // exiting in the parent. We also replace stdin/stdout with /dev/null so the stdout file
     // descriptor isn't kept alive, and chdir to the root, to prevent blocking file systems from
     // being unmounted.
     // The above is copied from wl-clipboard.
-    let out_null = File::create("/dev/null").unwrap();
-    let err_null = File::create("/dev/null").unwrap();
+    let out_null = File::create("/dev/null")?;
+    let err_null = File::create("/dev/null")?;
 
     if !foreground {
         let daemonize = Daemonize::new()
@@ -173,41 +179,46 @@ fn do_copy(arg_matches: &ArgMatches) {
 
         // wl-clipboard does this
         ignore_sighub();
-        match daemonize.start() {
-            Ok(_) => println!("Success, daemonized"),
-            Err(e) => eprintln!("Error, {}", e),
-        }
+        daemonize.start()?;
     }
 
     let copy_config = clipboard::CopyConfig {
         source_data,
-        use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
-        x_chunk_size: *arg_matches.get_one::<usize>("chunk-size").unwrap(),
+        use_primary: *arg_matches
+            .get_one::<bool>("primary")
+            .context("`--primary` option is not specified for the `copy` command")?,
+        x_chunk_size: *arg_matches
+            .get_one::<usize>("chunk-size")
+            .context("`--chunk-size` option is not specified for the `copy` command")?,
     };
     match choose_backend() {
         Backend::Wayland => {
-            clipboard::copy_wayland(copy_config).expect("Failed to copy to wayland clipboard")
+            clipboard::copy_wayland(copy_config).context("Failed to copy to wayland clipboard")
         }
-        Backend::X => clipboard::copy_x(copy_config).expect("Failed to copy to wayland clipboard"),
+        Backend::X => clipboard::copy_x(copy_config).context("Failed to copy to wayland clipboard"),
     }
 }
 
-fn do_paste(arg_matches: &ArgMatches) {
+fn do_paste(arg_matches: &ArgMatches) -> Result<()> {
     let t = match arg_matches.get_one::<String>("type") {
         Some(t) => t,
         _ => "",
     };
     let cfg = clipboard::PasteConfig {
-        list_types_only: *arg_matches.get_one::<bool>("list-types").unwrap(),
-        use_primary: *arg_matches.get_one::<bool>("primary").unwrap(),
+        list_types_only: *arg_matches
+            .get_one::<bool>("list-types")
+            .context("`--list-types` option is not specified for the `paste` command")?,
+        use_primary: *arg_matches
+            .get_one::<bool>("primary")
+            .context("`--primary` option is not specified for the `paste` command")?,
         fd_to_write: &mut stdout(),
         expected_mime_type: t.to_string(),
     };
     match choose_backend() {
         Backend::Wayland => {
-            clipboard::paste_wayland(cfg).expect("Failed to paste from wayland clipboard")
+            clipboard::paste_wayland(cfg).context("Failed to paste from wayland clipboard")
         }
-        Backend::X => clipboard::paste_x(cfg).expect("Failed to paste from X clipboard"),
+        Backend::X => clipboard::paste_x(cfg).context("Failed to paste from X clipboard"),
     }
 }
 
