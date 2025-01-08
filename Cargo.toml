@@ -16,6 +16,7 @@ libc = "0.2.168"
 xcb = { version = "1.5.0", features = [] }
 x11rb = { version = "0.13.1", features = [] }
 simplelog = "0.12.2"
+nix = "0.29.0"
 
 [build-dependencies]
 vergen-git2 = { version = "1.0.2", features = ["build", "cargo"] }

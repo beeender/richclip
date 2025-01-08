@@ -211,7 +211,7 @@ fn do_paste(arg_matches: &ArgMatches) -> Result<()> {
         use_primary: *arg_matches
             .get_one::<bool>("primary")
             .context("`--primary` option is not specified for the `paste` command")?,
-        fd_to_write: &mut stdout(),
+        writter: &mut stdout(),
         expected_mime_type: t.to_string(),
     };
     match choose_backend() {
