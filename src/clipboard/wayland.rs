@@ -1,8 +1,8 @@
 use super::mime_type::decide_mime_type;
-use super::PasteConfig;
 use super::CopyConfig;
+use super::PasteConfig;
 use crate::protocol::SourceData;
-use anyhow::{Context, Error, Result, bail};
+use anyhow::{bail, Context, Error, Result};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
@@ -266,8 +266,7 @@ fn wl_source_cb_for_copy(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>)
             log::debug!("Received 'Send' event");
             let src_data = ctx.state.source_data;
             let mut file = File::from(fd);
-            let (_, content) = src_data
-                .content_by_mime_type(mime_type.to_str().unwrap());
+            let (_, content) = src_data.content_by_mime_type(mime_type.to_str().unwrap());
             file.write_all(&content).unwrap();
         }
         zwlr_data_control_source_v1::Event::Cancelled => {

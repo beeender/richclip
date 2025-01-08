@@ -73,7 +73,7 @@ pub fn receive_data(mut reader: impl Read) -> Result<Vec<SourceDataItem>> {
                 let content = read_content(&mut reader)?;
                 ret.push(SourceDataItem {
                     mime_type: type_list,
-                    content: content.into()
+                    content: content.into(),
                 });
                 type_list = Vec::new();
             }
