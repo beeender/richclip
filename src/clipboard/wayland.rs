@@ -3,11 +3,12 @@ use super::CopyConfig;
 use super::PasteConfig;
 use crate::protocol::SourceData;
 use anyhow::{bail, Context, Error, Result};
+use nix::unistd::{pipe, read};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
-use std::os::fd::AsFd;
+use std::os::fd::AsRawFd;
 use wayrs_client::global::GlobalExt;
 use wayrs_client::protocol::wl_seat::WlSeat;
 use wayrs_client::{Connection, EventCtx, IoMode};
@@ -29,7 +30,7 @@ struct CopyEventState<'a> {
     source_data: &'a dyn SourceData,
 }
 
-struct PasteEventState<'a, T: AsFd + Write> {
+struct PasteEventState<'a, T: Write> {
     finishied: bool,
     result: Option<Error>,
     // Stored offers for selection and primary selection (middle-click paste).
@@ -71,7 +72,7 @@ fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
     })
 }
 
-pub fn paste_wayland<T: AsFd + Write + 'static>(cfg: PasteConfig<T>) -> Result<()> {
+pub fn paste_wayland<T: Write + 'static>(cfg: PasteConfig<T>) -> Result<()> {
     let mut client =
         create_wayland_client::<PasteEventState<T>>().context("Faild to create wayland client")?;
 
@@ -143,9 +144,7 @@ pub fn copy_wayland<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
 }
 
 #[allow(clippy::collapsible_match)]
-fn wl_device_cb_for_paste<T: AsFd + Write>(
-    ctx: EventCtx<PasteEventState<T>, ZwlrDataControlDeviceV1>,
-) {
+fn wl_device_cb_for_paste<T: Write>(ctx: EventCtx<PasteEventState<T>, ZwlrDataControlDeviceV1>) {
     macro_rules! unwrap_or_return {
         ( $e:expr, $report_error:expr) => {
             match $e {
@@ -210,10 +209,6 @@ fn wl_device_cb_for_paste<T: AsFd + Write>(
             }
             let obj_id = o.unwrap();
 
-            let fd = unwrap_or_return!(
-                ctx.state.config.fd_to_write.as_fd().try_clone_to_owned(),
-                true
-            );
             let (offer, supported_types) = ctx
                 .state
                 .offers
@@ -224,7 +219,7 @@ fn wl_device_cb_for_paste<T: AsFd + Write>(
             // with "-l", list the mime-types and return
             if ctx.state.config.list_types_only {
                 for mt in supported_types {
-                    writeln!(ctx.state.config.fd_to_write, "{}", mt).unwrap()
+                    writeln!(ctx.state.config.writter, "{}", mt).unwrap()
                 }
                 ctx.state.finishied = true;
                 ctx.conn.break_dispatch_loop();
@@ -237,12 +232,27 @@ fn wl_device_cb_for_paste<T: AsFd + Write>(
             );
             let mime_type = unwrap_or_return!(CString::new(str), true);
 
-            offer.receive(ctx.conn, mime_type, fd);
+            // offer.receive needs a fd to write, we cannot use the stdin since the read side of the
+            // pipe may close earlier before all data written.
+            let fds = unwrap_or_return!(pipe(), true);
+            offer.receive(ctx.conn, mime_type, fds.1);
             // This looks strange, but it is working. It seems offer.receive is a request but nont a
             // blocking call, which needs an extra loop to finish. Maybe a callback needs to be set
             // to wait until it is processed, but I have no idea how to do that.
             // conn.set_callback_for() doesn't work for the offer here.
             ctx.conn.blocking_roundtrip().unwrap();
+            let mut buffer = vec![0; 1024 * 4];
+            loop {
+                // Read from the pipe until EOF
+                let n = unwrap_or_return!(read(fds.0.as_raw_fd(), &mut buffer), true);
+                if n > 0 {
+                    // Write the content to the destination
+                    unwrap_or_return!(ctx.state.config.writter.write(&buffer[0..n]), true);
+                } else {
+                    break;
+                }
+            }
+
             offer.destroy(ctx.conn);
             ctx.state.finishied = true;
             ctx.conn.break_dispatch_loop();

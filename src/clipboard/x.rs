@@ -5,7 +5,6 @@ use crate::protocol::SourceData;
 use anyhow::{bail, Context, Result};
 use std::collections::hash_map::HashMap;
 use std::io::Write;
-use std::os::fd::AsFd;
 use std::rc::Rc;
 use x11rb::atom_manager;
 use x11rb::connection::Connection;
@@ -42,7 +41,7 @@ struct XClient {
     atoms: AtomCollection,
 }
 
-struct XPasteState<'a, T: AsFd + Write> {
+struct XPasteState<'a, T: Write> {
     supported_mime_types: Option<Vec<String>>,
     config: PasteConfig<'a, T>,
     // Translate the config.primary
@@ -465,7 +464,7 @@ fn create_x_client(display_name: Option<&str>) -> Result<XClient> {
     })
 }
 
-pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> {
+pub fn paste_x<T: Write + 'static>(config: PasteConfig<T>) -> Result<()> {
     let mut client = create_x_client(None)?;
 
     let selection = if config.use_primary {
@@ -536,7 +535,7 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
                     }
                     if state.config.list_types_only {
                         for line in mime_types {
-                            writeln!(&mut state.config.fd_to_write, "{}", line)
+                            writeln!(&mut state.config.writter, "{}", line)
                                 .context("Failed to write to the output")?;
                         }
                         break;
@@ -568,7 +567,7 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
                 } else {
                     match &mut state.receiver {
                         Some(receiver) => {
-                            if receiver.receive_and_write(&client, &mut state.config.fd_to_write)?
+                            if receiver.receive_and_write(&client, &mut state.config.writter)?
                                 == TransferResult::Done
                             {
                                 break;
@@ -595,8 +594,7 @@ pub fn paste_x<T: AsFd + Write + 'static>(config: PasteConfig<T>) -> Result<()> 
                 };
                 match &mut state.receiver {
                     Some(receiver) => {
-                        if receiver
-                            .receive_and_write_incr(&client, &mut state.config.fd_to_write)?
+                        if receiver.receive_and_write_incr(&client, &mut state.config.writter)?
                             == TransferResult::Done
                         {
                             break;

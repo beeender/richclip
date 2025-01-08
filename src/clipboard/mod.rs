@@ -4,14 +4,13 @@ mod x;
 
 use super::protocol::SourceData;
 use std::io::Write;
-use std::os::fd::AsFd;
 
-pub struct PasteConfig<'a, T: AsFd + Write> {
+pub struct PasteConfig<'a, T: Write> {
     // Only list mime-types
     pub list_types_only: bool,
     pub use_primary: bool,
     pub expected_mime_type: String,
-    pub fd_to_write: &'a mut T,
+    pub writter: &'a mut T,
 }
 
 pub struct CopyConfig<T: SourceData> {
