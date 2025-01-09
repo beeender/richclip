@@ -7,7 +7,7 @@ build = "build.rs"
 
 [dependencies]
 anyhow = "1.0.94"
-clap = "4.5.23"
+clap = { version = "4.5.23", features = ["derive"] }
 daemonize = "0.5.0"
 log = "0.4.22"
 wayrs-client = "1.1.3"
