@@ -32,7 +32,7 @@ fn choose_backend() -> Backend {
     std::process::exit(1)
 }
 
-/// A fictional versioning CLI
+/// Clipboard utility for multiple platforms
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
