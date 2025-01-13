@@ -7,7 +7,7 @@ mod clipboard;
 mod protocol;
 
 use anyhow::{Context, Result};
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 use daemonize::Daemonize;
 use std::env;
 use std::fs::File;
@@ -48,6 +48,13 @@ struct CopyArgs {
     /// Run in foreground
     #[arg(long = "foreground", num_args = 0)]
     foreground: bool,
+    /// Enable one-shot mode, anything received from stdin will be copied as it is
+    #[arg(long = "one-shot", num_args = 0)]
+    oneshot: bool,
+    /// Specify mime-type(s) to copy and implicitly enable one-shot copy mode
+    #[arg(long = "type", short = 't', num_args = 0..=1,
+        value_name = "mime-type", default_missing_value = "TEXT", action = ArgAction::Append )]
+    mime_types: Option<Vec<String>>,
     /// For testing X INCR mode
     #[arg(
         long = "chunk-size",
@@ -141,8 +148,25 @@ fn main() -> Result<()> {
 }
 
 fn do_copy(copy_args: &CopyArgs) -> Result<()> {
+    const TEXT_TYPES: [&str; 5] = [
+        "text/plain",
+        "text/plain;charset=utf-8",
+        "TEXT",
+        "STRING",
+        "UTF8_STRING",
+    ];
     let stdin = stdin();
-    let source_data = protocol::receive_data(&stdin).context("Failed to read data from stdin")?;
+    let oneshot = copy_args.oneshot || copy_args.mime_types.is_some();
+
+    let source_data = if oneshot {
+        let mime_types = match &copy_args.mime_types {
+            Some(types) => types.to_vec(),
+            _ => TEXT_TYPES.iter().map(|s| s.to_string()).collect(),
+        };
+        protocol::receive_data_oneshot(&stdin, &mime_types)?
+    } else {
+        protocol::receive_data_bulk(&stdin)?
+    };
 
     // Move to background. We fork our process and leave the child running in the background, while
     // exiting in the parent. We also replace stdin/stdout with /dev/null so the stdout file

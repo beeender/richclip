@@ -56,7 +56,7 @@ impl SourceData for Vec<SourceDataItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::receive_data;
+    use crate::protocol::receive_data_bulk;
     use crate::protocol::PROTOCAL_VER;
 
     #[test]
@@ -70,7 +70,7 @@ mod tests {
             b'M', 0, 0, 0, 9, b't', b'e', b'x', b't', b'/', b'h', b't', b'm', b'l',
             b'C', 0, 0, 0, 3, b'B', b'A', b'D',
             ];
-        let r = receive_data(&mut &buf[..]).unwrap();
+        let r = receive_data_bulk(&mut &buf[..]).unwrap();
 
         let (result, content) = r.content_by_mime_type("text/plain");
         assert!(result);
