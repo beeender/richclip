@@ -32,7 +32,7 @@ use super::source_data::SourceDataItem;
 /// - Every section starts with the section type, `M` (mime-type) or `C` (content).
 /// - Before `C` section, there must be one or more `M` section to indicate the data type.
 /// - Section length will be parsed as big-endian uint32 number.
-pub fn receive_data(mut reader: impl Read) -> Result<Vec<SourceDataItem>> {
+pub fn receive_data_bulk(mut reader: impl Read) -> Result<Vec<SourceDataItem>> {
     // Check magic header
     let mut magic = [0u8; 4];
     reader
@@ -83,6 +83,32 @@ pub fn receive_data(mut reader: impl Read) -> Result<Vec<SourceDataItem>> {
         }
     }
 
+    Ok(ret)
+}
+
+pub fn receive_data_oneshot(
+    mut reader: impl Read,
+    mime_types: &[String],
+) -> Result<Vec<SourceDataItem>> {
+    let mut content = Vec::<u8>::new();
+    let n = reader
+        .read_to_end(&mut content)
+        .context("Failed to read content")?;
+    log::debug!("Read {n} bytes for oneshot mode");
+
+    let filtered: Vec<String> = mime_types
+        .iter()
+        .filter(|t| !t.is_empty())
+        .map(String::clone)
+        .collect();
+    if filtered.is_empty() {
+        bail!("All given mime_types are empty");
+    }
+
+    let ret = vec![SourceDataItem {
+        mime_type: filtered,
+        content: content.into(),
+    }];
     Ok(ret)
 }
 
@@ -173,15 +199,15 @@ mod tests {
     }
 
     #[test]
-    fn test_receive_data() {
+    fn test_receive_data_bulk() {
         // Wrong magic
         let buf = [0x02, 0x09, 0x02, 0x14, PROTOCAL_VER, b'M'];
-        let r = receive_data(&mut &buf[..]);
+        let r = receive_data_bulk(&mut &buf[..]);
         assert!(r.is_err());
 
         // Wrong protoal version
         let buf = [0x20, 0x09, 0x02, 0x14, 99, b'M'];
-        let r = receive_data(&mut &buf[..]);
+        let r = receive_data_bulk(&mut &buf[..]);
         assert!(r.is_err());
 
         // correct
@@ -194,7 +220,7 @@ mod tests {
             b'M', 0, 0, 0, 9, b't', b'e', b'x', b't', b'/', b'h', b't', b'm', b'l',
             b'C', 0, 0, 0, 3, b'B', b'A', b'D',
             ];
-        let r = receive_data(&mut &buf[..]).unwrap();
+        let r = receive_data_bulk(&mut &buf[..]).unwrap();
         assert_eq!(r.len(), 2);
 
         let data1 = &r[0];
@@ -206,5 +232,31 @@ mod tests {
         assert_eq!(data2.mime_type.len(), 1);
         assert_eq!(data2.mime_type[0], "text/html");
         assert_eq!(data2.content.as_slice(), b"BAD");
+    }
+
+    #[test]
+    fn test_receive_data_oneshot() {
+        let buf = [b'G', b'O', b'O', b'D'];
+
+        // With one mime-type
+        let r = receive_data_oneshot(&mut &buf[..], &["text".to_string()]).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].mime_type.len(), 1);
+        assert_eq!(r[0].mime_type[0], "text");
+
+        // With two mime-types
+        let r = receive_data_oneshot(
+            &mut &buf[..],
+            &["text".to_string(), "text/plain".to_string()],
+        )
+        .unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].mime_type.len(), 2);
+        assert_eq!(r[0].mime_type[0], "text");
+        assert_eq!(r[0].mime_type[1], "text/plain");
+
+        // With zero mime-type
+        let r = receive_data_oneshot(&mut &buf[..], &["".to_string()]);
+        assert!(r.is_err())
     }
 }

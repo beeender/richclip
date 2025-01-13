@@ -51,15 +51,23 @@ Options:
 ❯ richclip copy --help
 Receive and copy data to the clipboard
 Usage: richclip copy [OPTIONS]
+
 Options:
-  -p, --primary     Use the 'primary' clipboard
-      --foreground  Run in foreground
-  -h, --help        Print help
+  -p, --primary             Use the 'primary' clipboard
+      --foreground          Run in foreground
+      --one-shot            Enable one-shot mode, anything received from stdin will be copied as it is
+  -t, --type [<mime-type>]  Specify mime-type(s) to copy and implicitly enable one-shot copy mode
+  -h, --help                Print help
 ```
 
+#### Bulk mode copy
+
+By default, `richclip` receives data in bulk mode. In this mode, multiple formats
+of data can be copied to the clipboard with multiple mime-types. This allows
+the paste side to choose the favorite format of data to use.
+
 The data to be copied to the clipboard needs to follow a simple protocol which
-is described as below. A simpler transfer mode will be supported in the future
-for copying single type content like other clipboard utilities.
+is described as below.
 
 | Item             | Bytes    | Content             |
 |------------------| :------- | :------------------ |
@@ -84,3 +92,18 @@ for copying single type content like other clipboard utilities.
 - Every section starts with the section type, `M` (mime-type) or `C` (content).
 - Before `C` section, there must be one or more `M` section to indicate the data type.
 - Section length will be parsed as big-endian uint32 number.
+
+#### One-shot mode copy
+
+This is the traditional way to copy data like other clipboard utilities. The
+mime-types can be specified through the command line, and all data received
+through `stdin` will be copied as it is.
+
+```bash
+# Copy "TestData" to the clipboard, with default mime-type
+echo TestData | richclip copy --one-shot
+
+
+# Copy "<body>Haha</body>" to the clipboard, as "text/html" and "HTML"
+echo "<body>Haha</body>" | richclip copy --type "text/html" --type "HTML"
+```

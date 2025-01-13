@@ -28,7 +28,9 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Run bats test
-      run: bats test/bats/x
+      run: |
+        bats test/bats/x
+        bats test/bats/loopback
       shell: bash
       env:
         BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
