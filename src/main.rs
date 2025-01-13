@@ -7,7 +7,7 @@ mod clipboard;
 mod protocol;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use daemonize::Daemonize;
 use std::env;
 use std::fs::File;
@@ -39,38 +39,52 @@ struct Cli {
     command: Commands,
 }
 
+/// Arguments for copy command
+#[derive(Args)]
+struct CopyArgs {
+    /// Use the 'primary' clipboard
+    #[arg(long = "primary", short = 'p', num_args = 0)]
+    primary: bool,
+    /// Run in foreground
+    #[arg(long = "foreground", num_args = 0)]
+    foreground: bool,
+    /// For testing X INCR mode
+    #[arg(
+        long = "chunk-size",
+        hide = true,
+        required = false,
+        num_args = 1,
+        default_value = "0"
+    )]
+    chunk_size: usize,
+}
+
+/// Arguments for paste command
+#[derive(Args)]
+struct PasteArgs {
+    /// List the offered mime-types of the current clipboard only without the contents
+    #[arg(long = "list-types", short = 'l', num_args = 0)]
+    list_types: bool,
+    /// Specify the preferred mime-type to be pasted
+    #[arg(
+        long = "type",
+        short = 't',
+        value_name = "mime-type",
+        num_args = 1,
+        default_value = ""
+    )]
+    type_: String,
+    /// Use the 'primary' clipboard
+    #[arg(long = "primary", short = 'p', num_args = 0)]
+    primary: bool,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Receive and copy data to the clipboard
-    Copy {
-        /// Use the 'primary' clipboard
-        #[arg(long = "primary", short = 'p', num_args = 0)]
-        primary: bool,
-        /// Run in foreground
-        #[arg(long = "foreground", num_args = 0)]
-        foreground: bool,
-        /// For testing X INCR mode
-        #[arg(
-            long = "chunk-size",
-            hide = true,
-            required = false,
-            num_args = 1,
-            default_value = "0"
-        )]
-        chunk_size: usize,
-    },
+    Copy(CopyArgs),
     /// Paste the data from clipboard to the output
-    Paste {
-        /// List the offered mime-types of the current clipboard only without the contents
-        #[arg(long = "list-types", short = 'l', num_args = 0)]
-        list_types: bool,
-        /// Specify the preferred mime-type to be pasted
-        #[arg(long = "type", short = 't', value_name = "mime-type", num_args = 1)]
-        type_: Option<String>,
-        /// Use the 'primary' clipboard
-        #[arg(long = "primary", short = 'p', num_args = 0)]
-        primary: bool,
-    },
+    Paste(PasteArgs),
     /// Print version info
     Version,
 }
@@ -112,16 +126,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Copy {
-            primary,
-            foreground,
-            chunk_size,
-        } => do_copy(primary, foreground, chunk_size)?,
-        Commands::Paste {
-            list_types,
-            type_,
-            primary,
-        } => do_paste(&type_.unwrap_or("".to_string()), list_types, primary)?,
+        Commands::Copy(copy_args) => do_copy(&copy_args)?,
+        Commands::Paste(paste_args) => do_paste(&paste_args)?,
         Commands::Version => {
             let ver = env!("CARGO_PKG_VERSION");
             let git_desc = env!("VERGEN_GIT_DESCRIBE");
@@ -134,7 +140,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn do_copy(primary: bool, foreground: bool, chunk_size: usize) -> Result<()> {
+fn do_copy(copy_args: &CopyArgs) -> Result<()> {
     let stdin = stdin();
     let source_data = protocol::receive_data(&stdin).context("Failed to read data from stdin")?;
 
@@ -146,7 +152,7 @@ fn do_copy(primary: bool, foreground: bool, chunk_size: usize) -> Result<()> {
     let out_null = File::create("/dev/null")?;
     let err_null = File::create("/dev/null")?;
 
-    if !foreground {
+    if !copy_args.foreground {
         let daemonize = Daemonize::new()
             .working_directory("/") // prevent blocking fs from being unmounted.
             .stdout(out_null)
@@ -159,8 +165,8 @@ fn do_copy(primary: bool, foreground: bool, chunk_size: usize) -> Result<()> {
 
     let copy_config = clipboard::CopyConfig {
         source_data,
-        use_primary: primary,
-        x_chunk_size: chunk_size,
+        use_primary: copy_args.primary,
+        x_chunk_size: copy_args.chunk_size,
     };
     match choose_backend() {
         Backend::Wayland => {
@@ -170,12 +176,12 @@ fn do_copy(primary: bool, foreground: bool, chunk_size: usize) -> Result<()> {
     }
 }
 
-fn do_paste(mime_type: &str, list_types: bool, primary: bool) -> Result<()> {
+fn do_paste(paste_args: &PasteArgs) -> Result<()> {
     let cfg = clipboard::PasteConfig {
-        list_types_only: list_types,
-        use_primary: primary,
+        list_types_only: paste_args.list_types,
+        use_primary: paste_args.primary,
         writter: &mut stdout(),
-        expected_mime_type: mime_type.to_string(),
+        expected_mime_type: paste_args.type_.clone(),
     };
     match choose_backend() {
         Backend::Wayland => {
