@@ -1,4 +1,5 @@
 use super::mime_type::decide_mime_type;
+use super::ClipBackend;
 use super::CopyConfig;
 use super::PasteConfig;
 use crate::protocol::SourceData;
@@ -18,6 +19,8 @@ use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as WrapperConnectionExt;
 use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
+
+pub struct XBackend {}
 
 atom_manager! {
     pub AtomCollection: AtomCollectionCookie {
@@ -41,9 +44,9 @@ struct XClient {
     atoms: AtomCollection,
 }
 
-struct XPasteState<'a, T: Write> {
+struct XPasteState {
     supported_mime_types: Option<Vec<String>>,
-    config: PasteConfig<'a, T>,
+    config: PasteConfig,
     // Translate the config.primary
     selection: Atom,
     receiver: Option<XSelectionReceiver<u8>>,
@@ -91,9 +94,19 @@ struct XSelectionReceiver<T> {
     is_incr: bool,
 }
 
-struct XCopyState<'a> {
-    source_data: &'a dyn SourceData,
+struct XCopyState {
+    source_data: Box<dyn SourceData>,
     ongoing_senders: HashMap<Window, XSelectionSender>,
+}
+
+impl ClipBackend for XBackend {
+    fn copy(&self, config: CopyConfig) -> Result<()> {
+        copy_x(config)
+    }
+
+    fn paste(&self, config: PasteConfig) -> Result<()> {
+        paste_x(config)
+    }
 }
 
 impl XSelectionSender {
@@ -464,7 +477,7 @@ fn create_x_client(display_name: Option<&str>) -> Result<XClient> {
     })
 }
 
-pub fn paste_x<T: Write + 'static>(config: PasteConfig<T>) -> Result<()> {
+fn paste_x(config: PasteConfig) -> Result<()> {
     let mut client = create_x_client(None)?;
 
     let selection = if config.use_primary {
@@ -615,9 +628,9 @@ pub fn paste_x<T: Write + 'static>(config: PasteConfig<T>) -> Result<()> {
     Ok(())
 }
 
-pub fn copy_x<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
+fn copy_x(config: CopyConfig) -> Result<()> {
     let mut state = XCopyState {
-        source_data: &config.source_data,
+        source_data: config.source_data,
         ongoing_senders: HashMap::new(),
     };
     let client = create_x_client(None)?;
