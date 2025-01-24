@@ -1,4 +1,5 @@
 mod mime_type;
+#[cfg(target_os = "linux")]
 mod wayland;
 mod x;
 
@@ -26,13 +27,25 @@ pub struct CopyConfig {
     pub x_chunk_size: usize,
 }
 
-pub use wayland::WaylandBackend;
 pub use x::XBackend;
 
+#[cfg(target_os = "linux")]
+pub use wayland::WaylandBackend;
+
+#[cfg(target_os = "linux")]
 pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
         return Ok(Box::new(WaylandBackend {}));
     } else if std::env::var("DISPLAY").is_ok() {
+        return Ok(Box::new(XBackend {}));
+    }
+
+    bail!("Could not decide the clip backend");
+}
+
+#[cfg(target_os = "macos")]
+pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
+    if std::env::var("DISPLAY").is_ok() {
         return Ok(Box::new(XBackend {}));
     }
 
