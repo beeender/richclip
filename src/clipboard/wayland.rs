@@ -1,4 +1,5 @@
 use super::mime_type::decide_mime_type;
+use super::ClipBackend;
 use super::CopyConfig;
 use super::PasteConfig;
 use crate::protocol::SourceData;
@@ -19,24 +20,36 @@ use wayrs_protocols::wlr_data_control_unstable_v1::{
     ZwlrDataControlManagerV1,
 };
 
+pub struct WaylandBackend {}
+
 struct WaylandClient<T> {
     conn: Connection<T>,
     seat: WlSeat,
     data_ctl_mgr: ZwlrDataControlManagerV1,
 }
 
-struct CopyEventState<'a> {
+struct CopyEventState {
     finishied: bool,
-    source_data: &'a dyn SourceData,
+    source_data: Box<dyn SourceData>,
 }
 
-struct PasteEventState<'a, T: Write> {
+struct PasteEventState {
     finishied: bool,
     result: Option<Error>,
     // Stored offers for selection and primary selection (middle-click paste).
     offers: HashMap<ZwlrDataControlOfferV1, Vec<String>>,
 
-    config: PasteConfig<'a, T>,
+    config: PasteConfig,
+}
+
+impl ClipBackend for WaylandBackend {
+    fn copy(&self, config: CopyConfig) -> Result<()> {
+        copy_wayland(config)
+    }
+
+    fn paste(&self, config: PasteConfig) -> Result<()> {
+        paste_wayland(config)
+    }
 }
 
 fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
@@ -72,9 +85,9 @@ fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
     })
 }
 
-pub fn paste_wayland<T: Write + 'static>(cfg: PasteConfig<T>) -> Result<()> {
+fn paste_wayland(cfg: PasteConfig) -> Result<()> {
     let mut client =
-        create_wayland_client::<PasteEventState<T>>().context("Faild to create wayland client")?;
+        create_wayland_client::<PasteEventState>().context("Faild to create wayland client")?;
 
     let _data_control_device = client.data_ctl_mgr.get_data_device_with_cb(
         &mut client.conn,
@@ -105,7 +118,7 @@ pub fn paste_wayland<T: Write + 'static>(cfg: PasteConfig<T>) -> Result<()> {
     bail!(state.result.unwrap());
 }
 
-pub fn copy_wayland<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
+fn copy_wayland(config: CopyConfig) -> Result<()> {
     let mut client =
         create_wayland_client::<CopyEventState>().context("Faild to create wayland client")?;
 
@@ -128,7 +141,7 @@ pub fn copy_wayland<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
 
     let mut state = CopyEventState {
         finishied: false,
-        source_data: &config.source_data,
+        source_data: config.source_data,
     };
 
     client.conn.flush(IoMode::Blocking).unwrap();
@@ -144,7 +157,7 @@ pub fn copy_wayland<T: SourceData>(config: CopyConfig<T>) -> Result<()> {
 }
 
 #[allow(clippy::collapsible_match)]
-fn wl_device_cb_for_paste<T: Write>(ctx: EventCtx<PasteEventState<T>, ZwlrDataControlDeviceV1>) {
+fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
     macro_rules! unwrap_or_return {
         ( $e:expr, $report_error:expr) => {
             match $e {
@@ -274,7 +287,7 @@ fn wl_source_cb_for_copy(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>)
             fd,
         }) => {
             log::debug!("Received 'Send' event");
-            let src_data = ctx.state.source_data;
+            let src_data = &ctx.state.source_data;
             let mut file = File::from(fd);
             let (_, content) = src_data.content_by_mime_type(mime_type.to_str().unwrap());
             file.write_all(&content).unwrap();

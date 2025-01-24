@@ -14,24 +14,6 @@ use std::fs::File;
 use std::io::{stdin, stdout};
 use std::str::FromStr;
 
-enum Backend {
-    Wayland,
-    X,
-}
-
-fn choose_backend() -> Backend {
-    if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        return Backend::Wayland;
-    } else if std::env::var("DISPLAY").is_ok() {
-        return Backend::X;
-    }
-
-    log::error!(
-        "Failed to decide which backend to use. '$WAYLAND_DISPLAY' or '$DISPLAY' env needs to be set"
-    );
-    std::process::exit(1)
-}
-
 /// Clipboard utility for multiple platforms
 #[derive(Parser)]
 struct Cli {
@@ -188,31 +170,25 @@ fn do_copy(copy_args: &CopyArgs) -> Result<()> {
     }
 
     let copy_config = clipboard::CopyConfig {
-        source_data,
+        source_data: Box::new(source_data),
         use_primary: copy_args.primary,
         x_chunk_size: copy_args.chunk_size,
     };
-    match choose_backend() {
-        Backend::Wayland => {
-            clipboard::copy_wayland(copy_config).context("Failed to copy to wayland clipboard")
-        }
-        Backend::X => clipboard::copy_x(copy_config).context("Failed to copy to wayland clipboard"),
-    }
+    clipboard::create_backend()?
+        .copy(copy_config)
+        .context("Failed to copy to clipboard")
 }
 
 fn do_paste(paste_args: &PasteArgs) -> Result<()> {
     let cfg = clipboard::PasteConfig {
         list_types_only: paste_args.list_types,
         use_primary: paste_args.primary,
-        writter: &mut stdout(),
+        writter: Box::new(stdout()),
         expected_mime_type: paste_args.type_.clone(),
     };
-    match choose_backend() {
-        Backend::Wayland => {
-            clipboard::paste_wayland(cfg).context("Failed to paste from wayland clipboard")
-        }
-        Backend::X => clipboard::paste_x(cfg).context("Failed to paste from X clipboard"),
-    }
+    clipboard::create_backend()?
+        .paste(cfg)
+        .context("Failed to paste from clipboard")
 }
 
 fn ignore_sighub() {
