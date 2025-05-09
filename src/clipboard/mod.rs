@@ -1,10 +1,14 @@
+#[cfg(target_os = "macos")]
+mod mac;
 mod mime_type;
 #[cfg(target_os = "linux")]
 mod wayland;
 mod x;
 
 use super::protocol::SourceData;
-use anyhow::{bail, Result};
+#[cfg(target_os = "linux")]
+use anyhow::bail;
+use anyhow::Result;
 use std::io::Write;
 
 pub trait ClipBackend {
@@ -27,10 +31,13 @@ pub struct CopyConfig {
     pub x_chunk_size: usize,
 }
 
-pub use x::XBackend;
+#[cfg(target_os = "macos")]
+use mac::MacBackend;
 
 #[cfg(target_os = "linux")]
 pub use wayland::WaylandBackend;
+#[cfg(target_os = "linux")]
+pub use x::XBackend;
 
 #[cfg(target_os = "linux")]
 pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
@@ -45,9 +52,12 @@ pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
 
 #[cfg(target_os = "macos")]
 pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
-    if std::env::var("DISPLAY").is_ok() {
-        return Ok(Box::new(XBackend {}));
-    }
+    // NOTE: X clipboard can be supported on Mac if Mac has Xserver installed like XQuartz.
+    //       However it doesn't make too much sense since XQuartz should be above to read/write the
+    //       cocoa pasteboard.
+    // if std::env::var("DISPLAY").is_ok() {
+    //     return Ok(Box::new(XBackend {}));
+    // }
 
-    bail!("Could not decide the clip backend");
+    Ok(Box::new(MacBackend {}))
 }
