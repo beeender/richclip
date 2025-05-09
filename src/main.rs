@@ -8,8 +8,10 @@ mod protocol;
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, Args, Parser, Subcommand};
+#[cfg(target_os = "linux")]
 use daemonize::Daemonize;
 use std::env;
+#[cfg(target_os = "linux")]
 use std::fs::File;
 use std::io::{stdin, stdout};
 use std::str::FromStr;
@@ -28,6 +30,7 @@ struct CopyArgs {
     #[arg(long = "primary", short = 'p', num_args = 0)]
     primary: bool,
     /// Run in foreground
+    #[cfg(target_os = "linux")]
     #[arg(long = "foreground", num_args = 0)]
     foreground: bool,
     /// Enable one-shot mode, anything received from stdin will be copied as it is
@@ -150,23 +153,26 @@ fn do_copy(copy_args: &CopyArgs) -> Result<()> {
         protocol::receive_data_bulk(&stdin)?
     };
 
-    // Move to background. We fork our process and leave the child running in the background, while
-    // exiting in the parent. We also replace stdin/stdout with /dev/null so the stdout file
-    // descriptor isn't kept alive, and chdir to the root, to prevent blocking file systems from
-    // being unmounted.
-    // The above is copied from wl-clipboard.
-    let out_null = File::create("/dev/null")?;
-    let err_null = File::create("/dev/null")?;
+    #[cfg(target_os = "linux")]
+    {
+        // Move to background. We fork our process and leave the child running in the background, while
+        // exiting in the parent. We also replace stdin/stdout with /dev/null so the stdout file
+        // descriptor isn't kept alive, and chdir to the root, to prevent blocking file systems from
+        // being unmounted.
+        // The above is copied from wl-clipboard.
+        let out_null = File::create("/dev/null")?;
+        let err_null = File::create("/dev/null")?;
 
-    if !copy_args.foreground {
-        let daemonize = Daemonize::new()
-            .working_directory("/") // prevent blocking fs from being unmounted.
-            .stdout(out_null)
-            .stderr(err_null);
+        if !copy_args.foreground {
+            let daemonize = Daemonize::new()
+                .working_directory("/") // prevent blocking fs from being unmounted.
+                .stdout(out_null)
+                .stderr(err_null);
 
-        // wl-clipboard does this
-        ignore_sighub();
-        daemonize.start()?;
+            // wl-clipboard does this
+            ignore_sighub();
+            daemonize.start()?;
+        }
     }
 
     let copy_config = clipboard::CopyConfig {
@@ -191,6 +197,7 @@ fn do_paste(paste_args: &PasteArgs) -> Result<()> {
         .context("Failed to paste from clipboard")
 }
 
+#[cfg(target_os = "linux")]
 fn ignore_sighub() {
     use core::ffi::c_int;
     use core::ffi::c_void;
