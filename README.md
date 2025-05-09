@@ -26,7 +26,11 @@ Install `richclip` from the [AUR](https://aur.archlinux.org/packages/richclip).
 
 Download the static linked binary from the [release page](https://github.com/beeender/richclip/releases).
 
-### MacOS & Windows
+### MacOS
+
+Build it with `cargo build` and copy the executable to `$PATH`.
+
+### Windows
 
 Not supported yet
 
