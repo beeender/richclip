@@ -1,5 +1,3 @@
-#![cfg(target_os = "macos")]
-
 use super::ClipBackend;
 use super::CopyConfig;
 use super::PasteConfig;
@@ -86,7 +84,7 @@ unsafe fn copy_mac(config: CopyConfig) -> Result<()> {
         let length = res.1.len() as u64;
         let nsdata = NSData::dataWithBytesNoCopy_length_(nil, bytes, length);
         let r = pb.setData_forType(nsdata, nstr_type);
-        if r != 1 {
+        if !r {
             log::error!("Failed to call setData_forType on {t}");
         }
     }

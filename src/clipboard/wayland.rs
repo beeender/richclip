@@ -1,5 +1,3 @@
-#![cfg(target_os = "linux")]
-
 use super::mime_type::decide_mime_type;
 use super::ClipBackend;
 use super::CopyConfig;
