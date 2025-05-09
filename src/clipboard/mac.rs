@@ -84,7 +84,7 @@ unsafe fn copy_mac(config: CopyConfig) -> Result<()> {
         let length = res.1.len() as u64;
         let nsdata = NSData::dataWithBytesNoCopy_length_(nil, bytes, length);
         let r = pb.setData_forType(nsdata, nstr_type);
-        if !r {
+        if r != objc::runtime::YES {
             log::error!("Failed to call setData_forType on {t}");
         }
     }
@@ -125,7 +125,7 @@ unsafe fn paste_mac(config: PasteConfig) -> Result<()> {
         )
     }
 
-    let nstr_type = NSString::alloc(nil).init_str(expected_type.as_str());
+    let nstr_type: *mut objc::runtime::Object = NSString::alloc(nil).init_str(expected_type.as_str());
     let data = pb.dataForType(nstr_type);
     let bytes = data.bytes() as *const u8;
     let length = data.length() as usize;
