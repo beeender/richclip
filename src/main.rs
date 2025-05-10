@@ -27,6 +27,7 @@ struct Cli {
 #[derive(Args)]
 struct CopyArgs {
     /// Use the 'primary' clipboard
+    #[cfg(target_os = "linux")]
     #[arg(long = "primary", short = 'p', num_args = 0)]
     primary: bool,
     /// Run in foreground
@@ -67,6 +68,7 @@ struct PasteArgs {
     )]
     type_: String,
     /// Use the 'primary' clipboard
+    #[cfg(target_os = "linux")]
     #[arg(long = "primary", short = 'p', num_args = 0)]
     primary: bool,
 }
@@ -177,7 +179,10 @@ fn do_copy(copy_args: &CopyArgs) -> Result<()> {
 
     let copy_config = clipboard::CopyConfig {
         source_data: Box::new(source_data),
+        #[cfg(target_os = "linux")]
         use_primary: copy_args.primary,
+        #[cfg(not(target_os = "linux"))]
+        use_primary: false,
         x_chunk_size: copy_args.chunk_size,
     };
     clipboard::create_backend()?
@@ -188,7 +193,10 @@ fn do_copy(copy_args: &CopyArgs) -> Result<()> {
 fn do_paste(paste_args: &PasteArgs) -> Result<()> {
     let cfg = clipboard::PasteConfig {
         list_types_only: paste_args.list_types,
+        #[cfg(target_os = "linux")]
         use_primary: paste_args.primary,
+        #[cfg(not(target_os = "linux"))]
+        use_primary: false,
         writter: Box::new(stdout()),
         expected_mime_type: paste_args.type_.clone(),
     };
