@@ -8,9 +8,9 @@ use cocoa::appkit::NSPasteboard;
 use cocoa::base::id;
 use cocoa::base::nil;
 use cocoa::foundation::NSArray;
+use cocoa::foundation::NSAutoreleasePool;
 use cocoa::foundation::NSData;
 use cocoa::foundation::NSString;
-use cocoa::foundation::NSAutoreleasePool;
 
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -125,7 +125,8 @@ unsafe fn paste_mac(config: PasteConfig) -> Result<()> {
         )
     }
 
-    let nstr_type: *mut objc::runtime::Object = NSString::alloc(nil).init_str(expected_type.as_str());
+    let nstr_type: *mut objc::runtime::Object =
+        NSString::alloc(nil).init_str(expected_type.as_str());
     let data = pb.dataForType(nstr_type);
     let bytes = data.bytes() as *const u8;
     let length = data.length() as usize;
