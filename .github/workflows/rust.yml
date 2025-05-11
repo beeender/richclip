@@ -11,12 +11,24 @@ env:
 
 jobs:
   build:
+    name: Build and test for ${{ matrix.os}}
+    runs-on: ${{ matrix.os }}
 
-    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          ## Linux builds
+          - os: ubuntu-latest
+
+          ## macOS builds
+          - os: macos-latest
 
     steps:
     - uses: actions/checkout@v4
-    - name: Install dependencies
+    - name: Install Linux test dependencies
+      if: contains(matrix.os, 'ubuntu')
       run: |
         sudo apt-get update
         sudo apt-get install -y xvfb xclip
@@ -27,10 +39,21 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-    - name: Run bats test
+
+    - name: Run bats test on Linux
+      if: contains(matrix.os, 'ubuntu')
       run: |
         bats test/bats/x
         bats test/bats/loopback
+      shell: bash
+      env:
+        BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
+        TERM: xterm
+
+    - name: Run bats test on MacOS
+      if: contains(matrix.os, 'macos')
+      run: |
+        bats test/bats/mac
       shell: bash
       env:
         BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
