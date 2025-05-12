@@ -7,8 +7,8 @@ command line utility as an alternative to [xclip](https://github.com/astrand/xcl
 [xsel](https://github.com/astrand/xclip), [wl-clipboard](https://github.com/bugaevc/wl-clipboard)
 or other command line clipboard tools.
 
-- Supports Multiple environments. Xorg and Wayland are supported by the current
-  version. MacOS and Windows are planned.
+- Supports Multiple environments. Xorg, Wayland and MacOS are supported by the current
+  version. Windows is planned.
 - Recognizes the environment automatically, and choose the right clipboard to
   use.
 - Supports multiple content with different mime-types simultaneously. A typical
