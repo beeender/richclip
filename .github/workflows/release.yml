@@ -1,23 +1,86 @@
+name: Release
+
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - "v*"
 
 jobs:
-  release:
-    name: release ${{ matrix.target }}
-    runs-on: ubuntu-24.04
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
-      fail-fast: false
       matrix:
-        target: [x86_64-unknown-linux-musl]
+        include:
+          ## Linux builds
+          # Musl 1.2.3
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: target/x86_64-unknown-linux-musl/release/richclip
+            archive_type: tar.gz
+
+          ## macOS builds
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: target/x86_64-apple-darwin/release/richclip
+            archive_type: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: target/aarch64-apple-darwin/release/richclip
+            archive_type: tar.gz
+
     steps:
       - uses: actions/checkout@v4
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          ARCHIVE_TYPES: tar.gz
         with:
-          RUSTTARGET: ${{ matrix.target }}
-          TOOLCHAIN_VERSION: 1.83.0
-          PRE_BUILD: ".github/workflows/release_pre_build.sh"
+          persist-credentials: false
+
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          args: "--locked --release"
+          strip: true
+
+      - name: Archive Release
+        uses: TheDoctor0/zip-release@0.7.6
+        with:
+          type: ${{ matrix.archive_type }}
+          directory: target/${{ matrix.target }}/release
+          path: richclip
+          filename: richclip_${{ github.ref_name }}_${{ matrix.target }}.${{ matrix.archive_type }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: richclip_${{ github.ref_name }}_${{ matrix.target }}.${{ matrix.archive_type }}
+          path: target/${{ matrix.target }}/release/richclip_*.${{ matrix.archive_type }}
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate checksums
+        run: |
+          for file in ./**/*; do
+            sha256sum "$file" > "${file}.sha256"
+          done
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          token: ${{ github.token }}
+          files: ./**/*
+          draft: true
+          prerelease: false
+          generate_release_notes: true
