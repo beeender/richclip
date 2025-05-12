@@ -22,13 +22,9 @@ or other command line clipboard tools.
 
 Install `richclip` from the [AUR](https://aur.archlinux.org/packages/richclip).
 
-### Other Linux Distributions
+### MacOS & Other Linux Distributions
 
 Download the static linked binary from the [release page](https://github.com/beeender/richclip/releases).
-
-### MacOS
-
-Build it with `cargo build` and copy the executable to `$PATH`.
 
 ### Windows
 
