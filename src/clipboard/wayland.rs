@@ -1,23 +1,22 @@
-use super::mime_type::decide_mime_type;
 use super::ClipBackend;
 use super::CopyConfig;
 use super::PasteConfig;
+use super::mime_type::decide_mime_type;
 use crate::protocol::SourceData;
-use anyhow::{bail, Context, Error, Result};
+use anyhow::{Context, Error, Result, bail};
 use nix::unistd::{pipe, read};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
 use std::os::fd::AsRawFd;
-use wayrs_client::global::GlobalExt;
 use wayrs_client::protocol::wl_seat::WlSeat;
 use wayrs_client::{Connection, EventCtx, IoMode};
 use wayrs_protocols::wlr_data_control_unstable_v1::{
+    ZwlrDataControlManagerV1,
     zwlr_data_control_device_v1::{self, ZwlrDataControlDeviceV1},
     zwlr_data_control_offer_v1::{self, ZwlrDataControlOfferV1},
     zwlr_data_control_source_v1::{self, ZwlrDataControlSourceV1},
-    ZwlrDataControlManagerV1,
 };
 
 pub struct WaylandBackend {}
@@ -53,30 +52,12 @@ impl ClipBackend for WaylandBackend {
 }
 
 fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
-    let (mut conn, globals) = Connection::<T>::connect_and_collect_globals()
-        .context("Failed to create wayland connection")?;
+    let mut conn = Connection::<T>::connect().context("Failed to create wayland connection")?;
+    conn.blocking_roundtrip()
+        .context("Failed to call 'blocking_roundtrip'")?;
 
-    let mut seat_opt: Option<WlSeat> = None;
-    for g in &globals {
-        if g.is::<WlSeat>() {
-            if seat_opt.is_none() {
-                seat_opt = Some(g.bind(&mut conn, 2..=4).unwrap());
-            } else {
-                log::debug!("More than one WlSeat found, this is not expected")
-            }
-        }
-    }
-    let seat = seat_opt.context("Failed to find 'WlSeat'")?;
-
-    let data_ctl_mgr: ZwlrDataControlManagerV1 = globals
-        .iter()
-        .find(|g| g.is::<ZwlrDataControlManagerV1>())
-        .context(
-            "No zwlr_data_control_manager_v1 global found, \
-			ensure compositor supports wlr-data-control-unstable-v1 protocol",
-        )?
-        .bind(&mut conn, ..=2)
-        .context("Failed to bind to the 'ZwlrDataControlManagerV1'")?;
+    let seat: WlSeat = conn.bind_singleton(2..=4).context("")?;
+    let data_ctl_mgr: ZwlrDataControlManagerV1 = conn.bind_singleton(..=2).context("")?;
 
     Ok(WaylandClient::<T> {
         conn,
