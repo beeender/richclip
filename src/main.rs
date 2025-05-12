@@ -209,7 +209,7 @@ fn do_paste(paste_args: &PasteArgs) -> Result<()> {
 fn ignore_sighub() {
     use core::ffi::c_int;
     use core::ffi::c_void;
-    extern "C" {
+    unsafe extern "C" {
         fn signal(sig: c_int, handler: *const c_void);
     }
 
