@@ -1,21 +1,21 @@
-use super::mime_type::decide_mime_type;
 use super::ClipBackend;
 use super::CopyConfig;
 use super::PasteConfig;
+use super::mime_type::decide_mime_type;
 use crate::protocol::SourceData;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::collections::hash_map::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::connection::RequestConnection;
+use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
     Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt, CreateWindowAux, EventMask, PropMode,
-    Property, SelectionNotifyEvent, SelectionRequestEvent, Window, WindowClass,
-    SELECTION_NOTIFY_EVENT,
+    Property, SELECTION_NOTIFY_EVENT, SelectionNotifyEvent, SelectionRequestEvent, Window,
+    WindowClass,
 };
-use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as WrapperConnectionExt;
 use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};

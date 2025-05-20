@@ -1,7 +1,7 @@
 use super::ClipBackend;
 use super::CopyConfig;
 use super::PasteConfig;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use cocoa::appkit;
 use cocoa::appkit::NSPasteboard;
