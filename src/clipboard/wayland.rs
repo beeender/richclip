@@ -3,13 +3,14 @@ use super::CopyConfig;
 use super::PasteConfig;
 use super::mime_type::decide_mime_type;
 use crate::protocol::SourceData;
-use anyhow::{Context, Error, Result, bail};
+use anyhow::{Context, Error, Result};
 use nix::unistd::{pipe, read};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
 use std::os::fd::AsRawFd;
+use wayrs_client::core::ObjectId;
 use wayrs_client::protocol::wl_seat::WlSeat;
 use wayrs_client::{Connection, EventCtx, IoMode};
 use wayrs_protocols::wlr_data_control_unstable_v1::{
@@ -33,12 +34,18 @@ struct CopyEventState {
 }
 
 struct PasteEventState {
-    finishied: bool,
-    result: Option<Error>,
     // Stored offers for selection and primary selection (middle-click paste).
     offers: HashMap<ZwlrDataControlOfferV1, Vec<String>>,
+    stage: PasteEventStage,
 
     config: PasteConfig,
+}
+
+enum PasteEventStage {
+    Done,
+    Err(Error),
+    CollectingOffers,
+    GotSelection(ObjectId),
 }
 
 impl ClipBackend for WaylandBackend {
@@ -77,26 +84,58 @@ fn paste_wayland(cfg: PasteConfig) -> Result<()> {
     );
 
     let mut state = PasteEventState {
-        finishied: false,
-        result: None,
         offers: HashMap::new(),
+        stage: PasteEventStage::CollectingOffers,
         config: cfg,
     };
 
-    client.conn.flush(IoMode::Blocking).unwrap();
-    loop {
-        if state.finishied {
-            break;
+    let selection_id = loop {
+        match state.stage {
+            PasteEventStage::Done => return Ok(()),
+            PasteEventStage::Err(err) => return Err(err),
+            PasteEventStage::CollectingOffers => (),
+            PasteEventStage::GotSelection(id) => break id,
         }
+
+        client.conn.flush(IoMode::Blocking).unwrap();
         client.conn.recv_events(IoMode::Blocking).unwrap();
         client.conn.dispatch_events(&mut state);
-    }
+    };
 
-    if state.result.is_none() {
+    let (offer, supported_types) = state.offers.get_key_value(&selection_id).unwrap();
+
+    // with "-l", list the mime-types and return
+    if state.config.list_types_only {
+        for mt in supported_types {
+            writeln!(state.config.writter, "{mt}")?;
+        }
         return Ok(());
     }
 
-    bail!(state.result.unwrap());
+    let mime_type = CString::new(decide_mime_type(
+        &state.config.expected_mime_type,
+        supported_types,
+    )?)?;
+
+    // offer.receive needs a fd to write, we cannot use the stdin since the read side of the
+    // pipe may close earlier before all data written.
+    let fds = pipe()?;
+    offer.receive(&mut client.conn, mime_type, fds.1);
+    client.conn.flush(IoMode::Blocking)?;
+
+    let mut buffer = vec![0; 1024 * 4];
+    loop {
+        // Read from the pipe until EOF
+        let n = read(fds.0.as_raw_fd(), &mut buffer)?;
+        if n > 0 {
+            // Write the content to the destination
+            state.config.writter.write(&buffer[0..n])?;
+        } else {
+            break;
+        }
+    }
+
+    Ok(())
 }
 
 fn copy_wayland(config: CopyConfig) -> Result<()> {
@@ -139,25 +178,6 @@ fn copy_wayland(config: CopyConfig) -> Result<()> {
 
 #[allow(clippy::collapsible_match)]
 fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1>) {
-    macro_rules! unwrap_or_return {
-        ( $e:expr, $report_error:expr) => {
-            match $e {
-                Ok(x) => x,
-                Err(e) => {
-                    if $report_error {
-                        ctx.state.result = Some(e.into())
-                    } else {
-                        // Errors like empty clipboard are not real problems
-                        log::error!("{}", e)
-                    }
-                    ctx.state.finishied = true;
-                    ctx.conn.break_dispatch_loop();
-                    return;
-                }
-            }
-        };
-    }
-
     match ctx.event {
         // Received before Selection or PrimarySelection
         // Need to request mime-types here
@@ -165,11 +185,11 @@ fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1
             if ctx.state.offers.insert(offer, Vec::new()).is_some() {
                 log::error!("Duplicated offer received")
             }
-            ctx.conn.set_callback_for(offer, move |ctx| {
+            ctx.conn.set_callback_for(offer, |ctx| {
                 if let zwlr_data_control_offer_v1::Event::Offer(mime_type) = ctx.event {
                     if let Ok(str) = mime_type.to_str() {
                         let new_type = str.to_string();
-                        let mime_types = ctx.state.offers.get_mut(&offer).unwrap();
+                        let mime_types = ctx.state.offers.get_mut(&ctx.proxy).unwrap();
                         if !mime_types.iter().any(|s| new_type.eq(s)) {
                             // Duplicated mime-types could be reported (wl-paste -l shows the same)
                             mime_types.push(new_type);
@@ -180,81 +200,32 @@ fn wl_device_cb_for_paste(ctx: EventCtx<PasteEventState, ZwlrDataControlDeviceV1
                 }
             });
         }
-        // Do paste here
-        zwlr_data_control_device_v1::Event::PrimarySelection(o)
-        | zwlr_data_control_device_v1::Event::Selection(o) => {
-            match ctx.event {
-                zwlr_data_control_device_v1::Event::PrimarySelection(_) => {
-                    if !ctx.state.config.use_primary {
-                        return;
-                    }
-                }
-                _ => {
-                    if ctx.state.config.use_primary {
-                        return;
-                    }
-                }
+        zwlr_data_control_device_v1::Event::Selection(o) => {
+            if !ctx.state.config.use_primary {
+                let Some(obj_id) = o else {
+                    log::error!("No data in the clipboard");
+                    ctx.state.stage = PasteEventStage::Done;
+                    ctx.conn.break_dispatch_loop();
+                    return;
+                };
+                ctx.state.stage = PasteEventStage::GotSelection(obj_id);
             }
-            if o.is_none() {
-                log::error!("No data in the clipboard");
-                ctx.state.finishied = true;
-                ctx.conn.break_dispatch_loop();
-                return;
+        }
+        zwlr_data_control_device_v1::Event::PrimarySelection(o) => {
+            if ctx.state.config.use_primary {
+                let Some(obj_id) = o else {
+                    log::error!("No data in the clipboard");
+                    ctx.state.stage = PasteEventStage::Done;
+                    ctx.conn.break_dispatch_loop();
+                    return;
+                };
+                ctx.state.stage = PasteEventStage::GotSelection(obj_id);
             }
-            let obj_id = o.unwrap();
-
-            let (offer, supported_types) = ctx
-                .state
-                .offers
-                .iter()
-                .find(|pair| *(pair.0) == obj_id)
-                .unwrap();
-
-            // with "-l", list the mime-types and return
-            if ctx.state.config.list_types_only {
-                for mt in supported_types {
-                    writeln!(ctx.state.config.writter, "{}", mt).unwrap()
-                }
-                ctx.state.finishied = true;
-                ctx.conn.break_dispatch_loop();
-                return;
-            }
-
-            let str = unwrap_or_return!(
-                decide_mime_type(&ctx.state.config.expected_mime_type, supported_types),
-                false
-            );
-            let mime_type = unwrap_or_return!(CString::new(str), true);
-
-            // offer.receive needs a fd to write, we cannot use the stdin since the read side of the
-            // pipe may close earlier before all data written.
-            let fds = unwrap_or_return!(pipe(), true);
-            offer.receive(ctx.conn, mime_type, fds.1);
-            // This looks strange, but it is working. It seems offer.receive is a request but nont a
-            // blocking call, which needs an extra loop to finish. Maybe a callback needs to be set
-            // to wait until it is processed, but I have no idea how to do that.
-            // conn.set_callback_for() doesn't work for the offer here.
-            ctx.conn.blocking_roundtrip().unwrap();
-            let mut buffer = vec![0; 1024 * 4];
-            loop {
-                // Read from the pipe until EOF
-                let n = unwrap_or_return!(read(fds.0.as_raw_fd(), &mut buffer), true);
-                if n > 0 {
-                    // Write the content to the destination
-                    unwrap_or_return!(ctx.state.config.writter.write(&buffer[0..n]), true);
-                } else {
-                    break;
-                }
-            }
-
-            offer.destroy(ctx.conn);
-            ctx.state.finishied = true;
-            ctx.conn.break_dispatch_loop();
         }
         zwlr_data_control_device_v1::Event::Finished => {
             log::debug!("Received 'Finished' event");
-            ctx.state.result = Some(Error::msg("The data control object has been destroyed"));
-            ctx.state.finishied = true;
+            ctx.state.stage =
+                PasteEventStage::Err(Error::msg("The data control object has been destroyed"));
             ctx.conn.break_dispatch_loop();
         }
         _ => unreachable!("Unexpected event for device callback"),
