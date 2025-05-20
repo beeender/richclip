@@ -4,12 +4,11 @@ use super::PasteConfig;
 use super::mime_type::decide_mime_type;
 use crate::protocol::SourceData;
 use anyhow::{Context, Error, Result};
-use nix::unistd::{pipe, read};
+use nix::unistd::pipe;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
-use std::os::fd::AsRawFd;
 use wayrs_client::core::ObjectId;
 use wayrs_client::protocol::wl_seat::WlSeat;
 use wayrs_client::{Connection, EventCtx, IoMode};
@@ -119,21 +118,12 @@ fn paste_wayland(cfg: PasteConfig) -> Result<()> {
 
     // offer.receive needs a fd to write, we cannot use the stdin since the read side of the
     // pipe may close earlier before all data written.
-    let fds = pipe()?;
-    offer.receive(&mut client.conn, mime_type, fds.1);
+    let (pipe_read, pipe_write) = pipe()?;
+    offer.receive(&mut client.conn, mime_type, pipe_write);
     client.conn.flush(IoMode::Blocking)?;
 
-    let mut buffer = vec![0; 1024 * 4];
-    loop {
-        // Read from the pipe until EOF
-        let n = read(fds.0.as_raw_fd(), &mut buffer)?;
-        if n > 0 {
-            // Write the content to the destination
-            state.config.writter.write(&buffer[0..n])?;
-        } else {
-            break;
-        }
-    }
+    let mut pipe_read = File::from(pipe_read);
+    std::io::copy(&mut pipe_read, &mut state.config.writter)?;
 
     Ok(())
 }
