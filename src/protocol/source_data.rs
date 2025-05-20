@@ -56,8 +56,8 @@ impl SourceData for Vec<SourceDataItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::receive_data_bulk;
     use crate::protocol::PROTOCAL_VER;
+    use crate::protocol::receive_data_bulk;
 
     #[test]
     fn test_content_by_mime_type() {

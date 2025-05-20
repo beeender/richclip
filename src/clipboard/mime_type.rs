@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 const TEXT_TYPE_EXACT: &[&str] = &[
     "text/plain;charset=utf-8",

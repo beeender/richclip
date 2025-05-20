@@ -6,9 +6,9 @@ mod wayland;
 mod x;
 
 use super::protocol::SourceData;
+use anyhow::Result;
 #[cfg(target_os = "linux")]
 use anyhow::bail;
-use anyhow::Result;
 use std::io::Write;
 
 pub trait ClipBackend {
