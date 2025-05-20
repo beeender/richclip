@@ -111,10 +111,12 @@ fn paste_wayland(cfg: PasteConfig) -> Result<()> {
         return Ok(());
     }
 
-    let mime_type = CString::new(decide_mime_type(
-        &state.config.expected_mime_type,
-        supported_types,
-    )?)?;
+    let mime_type =
+        if let Ok(type_str) = decide_mime_type(&state.config.expected_mime_type, supported_types) {
+            CString::new(type_str)?
+        } else {
+            return Ok(());
+        };
 
     // offer.receive needs a fd to write, we cannot use the stdin since the read side of the
     // pipe may close earlier before all data written.
