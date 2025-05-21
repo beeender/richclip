@@ -75,19 +75,19 @@ is described as below.
 | Protocol Version | 1        | 0x00                |
 | Section Type     | 1        | 'M'                 |
 | Section Length   | 4        | 0x00 0x00 0x00 0x0a |
-| Section Data     | 4        | "text/plain"        |
+| Section Data     | 10        | "text/plain"        |
 | Section Type     | 1        | 'M'                 |
 | Section Length   | 4        | 0x00 0x00 0x00 0x04 |
 | Section Data     | 4        | "TEXT"              |
 | Section Type     | 1        | 'C'                 |
 | Section Length   | 4        | 0x00 0x00 0x00 0x09 |
-| Section Data     | 4        | "SOME Data"         |
+| Section Data     | 9        | "SOME Data"         |
 | Section Type     | 1        | 'M'                 |
 | Section Length   | 4        | 0x00 0x00 0x00 0x09 |
-| Section Data     | 4        | "text/html"         |
+| Section Data     | 9        | "text/html"         |
 | Section Type     | 1        | 'C'                 |
 | Section Length   | 4        | 0x00 0x00 0x00 0x09 |
-| Section Data     | 4        | "HTML code"         |
+| Section Data     | 9        | "HTML code"         |
 
 - Every section starts with the section type, `M` (mime-type) or `C` (content).
 - Before `C` section, there must be one or more `M` section to indicate the data type.
