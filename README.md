@@ -7,7 +7,7 @@ command line utility as an alternative to [xclip](https://github.com/astrand/xcl
 [xsel](https://github.com/astrand/xclip), [wl-clipboard](https://github.com/bugaevc/wl-clipboard)
 or other command line clipboard tools.
 
-- Supports Multiple environments. Xorg, Wayland and MacOS are supported by the current
+- Supports Multiple environments. Xorg, Wayland and macOS are supported by the current
   version. Windows is planned.
 - Recognizes the environment automatically, and choose the right clipboard to
   use.
@@ -22,7 +22,7 @@ or other command line clipboard tools.
 
 Install `richclip` from the [AUR](https://aur.archlinux.org/packages/richclip).
 
-### MacOS & Other Linux Distributions
+### macOS & Other Linux Distributions
 
 Download the static linked binary from the [release page](https://github.com/beeender/richclip/releases).
 

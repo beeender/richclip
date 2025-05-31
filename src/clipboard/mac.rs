@@ -95,7 +95,7 @@ unsafe fn copy_mac(config: CopyConfig) -> Result<()> {
 unsafe fn paste_mac(config: PasteConfig) -> Result<()> {
     let _pool = NSAutoreleasePool::new(nil);
 
-    let mut writer = config.writter;
+    let mut writer = config.writer;
     let mut type_list: Vec<String> = vec![];
 
     let pb = NSPasteboard::generalPasteboard(nil);

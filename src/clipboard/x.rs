@@ -437,11 +437,11 @@ fn mime_types_to_targets(conn: &RustConnection, mime_types: &Vec<String>) -> Vec
 
 fn decide_mime_type_with_atom(
     conn: &RustConnection,
-    prefered_atom: Atom,
+    preferred_atom: Atom,
     supported: &Vec<String>,
 ) -> Result<String> {
-    let prefered = get_atom_name(conn, prefered_atom)?;
-    let mime_type = decide_mime_type(&prefered, supported)?;
+    let preferred = get_atom_name(conn, preferred_atom)?;
+    let mime_type = decide_mime_type(&preferred, supported)?;
     Ok(mime_type)
 }
 
@@ -548,7 +548,7 @@ fn paste_x(config: PasteConfig) -> Result<()> {
                     }
                     if state.config.list_types_only {
                         for line in mime_types {
-                            writeln!(&mut state.config.writter, "{}", line)
+                            writeln!(&mut state.config.writer, "{}", line)
                                 .context("Failed to write to the output")?;
                         }
                         break;
@@ -580,7 +580,7 @@ fn paste_x(config: PasteConfig) -> Result<()> {
                 } else {
                     match &mut state.receiver {
                         Some(receiver) => {
-                            if receiver.receive_and_write(&client, &mut state.config.writter)?
+                            if receiver.receive_and_write(&client, &mut state.config.writer)?
                                 == TransferResult::Done
                             {
                                 break;
@@ -607,7 +607,7 @@ fn paste_x(config: PasteConfig) -> Result<()> {
                 };
                 match &mut state.receiver {
                     Some(receiver) => {
-                        if receiver.receive_and_write_incr(&client, &mut state.config.writter)?
+                        if receiver.receive_and_write_incr(&client, &mut state.config.writer)?
                             == TransferResult::Done
                         {
                             break;
