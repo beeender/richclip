@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use std::io::Read;
 
-pub static PROTOCAL_VER: u8 = 0;
+pub static PROTOCOL_VER: u8 = 0;
 static MAGIC: [u8; 4] = [0x20, 0x09, 0x02, 0x14];
 
 use super::source_data::SourceDataItem;
@@ -46,8 +46,8 @@ pub fn receive_data_bulk(mut reader: impl Read) -> Result<Vec<SourceDataItem>> {
     let mut ver = [0u8; 1];
     reader
         .read_exact(&mut ver)
-        .context("Failed to read protocal version")?;
-    if ver[0] != PROTOCAL_VER {
+        .context("Failed to read protocol version")?;
+    if ver[0] != PROTOCOL_VER {
         bail!("Failed to match protoal version: {}", ver[0]);
     }
 
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn test_receive_data_bulk() {
         // Wrong magic
-        let buf = [0x02, 0x09, 0x02, 0x14, PROTOCAL_VER, b'M'];
+        let buf = [0x02, 0x09, 0x02, 0x14, PROTOCOL_VER, b'M'];
         let r = receive_data_bulk(&mut &buf[..]);
         assert!(r.is_err());
 
@@ -213,7 +213,7 @@ mod tests {
         // correct
         #[rustfmt::skip]
         let buf =
-            [0x20, 0x09, 0x02, 0x14, PROTOCAL_VER,
+            [0x20, 0x09, 0x02, 0x14, PROTOCOL_VER,
             b'M', 0, 0, 0, 10, b't', b'e', b'x', b't', b'/', b'p', b'l', b'a', b'i', b'n',
             b'M', 0, 0, 0, 4, b'T', b'E', b'X', b'T',
             b'C', 0, 0, 0, 4, b'G', b'O', b'O', b'D',

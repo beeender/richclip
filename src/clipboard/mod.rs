@@ -21,7 +21,7 @@ pub struct PasteConfig {
     pub list_types_only: bool,
     pub use_primary: bool,
     pub expected_mime_type: String,
-    pub writter: Box<dyn Write>,
+    pub writer: Box<dyn Write>,
 }
 
 pub struct CopyConfig {

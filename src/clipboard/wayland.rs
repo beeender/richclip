@@ -28,7 +28,7 @@ struct WaylandClient<T> {
 }
 
 struct CopyEventState {
-    finishied: bool,
+    finished: bool,
     source_data: Box<dyn SourceData>,
 }
 
@@ -74,7 +74,7 @@ fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
 
 fn paste_wayland(cfg: PasteConfig) -> Result<()> {
     let mut client =
-        create_wayland_client::<PasteEventState>().context("Faild to create wayland client")?;
+        create_wayland_client::<PasteEventState>().context("Failed to create wayland client")?;
 
     let _data_control_device = client.data_ctl_mgr.get_data_device_with_cb(
         &mut client.conn,
@@ -106,7 +106,7 @@ fn paste_wayland(cfg: PasteConfig) -> Result<()> {
     // with "-l", list the mime-types and return
     if state.config.list_types_only {
         for mt in supported_types {
-            writeln!(state.config.writter, "{mt}")?;
+            writeln!(state.config.writer, "{mt}")?;
         }
         return Ok(());
     }
@@ -125,14 +125,14 @@ fn paste_wayland(cfg: PasteConfig) -> Result<()> {
     client.conn.flush(IoMode::Blocking)?;
 
     let mut pipe_read = File::from(pipe_read);
-    std::io::copy(&mut pipe_read, &mut state.config.writter)?;
+    std::io::copy(&mut pipe_read, &mut state.config.writer)?;
 
     Ok(())
 }
 
 fn copy_wayland(config: CopyConfig) -> Result<()> {
     let mut client =
-        create_wayland_client::<CopyEventState>().context("Faild to create wayland client")?;
+        create_wayland_client::<CopyEventState>().context("Failed to create wayland client")?;
 
     let source = client
         .data_ctl_mgr
@@ -152,13 +152,13 @@ fn copy_wayland(config: CopyConfig) -> Result<()> {
     }
 
     let mut state = CopyEventState {
-        finishied: false,
+        finished: false,
         source_data: config.source_data,
     };
 
     client.conn.flush(IoMode::Blocking).unwrap();
     loop {
-        if state.finishied {
+        if state.finished {
             break;
         }
         client.conn.recv_events(IoMode::Blocking).unwrap();
@@ -239,7 +239,7 @@ fn wl_source_cb_for_copy(ctx: EventCtx<CopyEventState, ZwlrDataControlSourceV1>)
         zwlr_data_control_source_v1::Event::Cancelled => {
             log::debug!("Received 'Cancelled' event");
             ctx.conn.break_dispatch_loop();
-            ctx.state.finishied = true;
+            ctx.state.finished = true;
         }
         _ => unreachable!("Unexpected event for source callback"),
     }

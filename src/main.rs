@@ -197,7 +197,7 @@ fn do_paste(paste_args: &PasteArgs) -> Result<()> {
         use_primary: paste_args.primary,
         #[cfg(not(target_os = "linux"))]
         use_primary: false,
-        writter: Box::new(stdout()),
+        writer: Box::new(stdout()),
         expected_mime_type: paste_args.type_.clone(),
     };
     clipboard::create_backend()?

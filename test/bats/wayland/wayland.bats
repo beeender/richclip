@@ -42,8 +42,8 @@ teardown() {
     [ "$output" = "" ]
 }
 
-@test "wayland paste with empty clipbaord" {
-    # Empty clipbaord
+@test "wayland paste with empty clipboard" {
+    # Empty clipboard
     wl-copy -c
     run -0 --separate-stderr "$RICHCLIP" paste
     [ "$output" = "" ]

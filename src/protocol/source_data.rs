@@ -56,14 +56,14 @@ impl SourceData for Vec<SourceDataItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::PROTOCAL_VER;
+    use crate::protocol::PROTOCOL_VER;
     use crate::protocol::receive_data_bulk;
 
     #[test]
     fn test_content_by_mime_type() {
         #[rustfmt::skip]
         let buf =
-            [0x20, 0x09, 0x02, 0x14, PROTOCAL_VER,
+            [0x20, 0x09, 0x02, 0x14, PROTOCOL_VER,
             b'M', 0, 0, 0, 10, b't', b'e', b'x', b't', b'/', b'p', b'l', b'a', b'i', b'n',
             b'M', 0, 0, 0, 4, b'T', b'E', b'X', b'T',
             b'C', 0, 0, 0, 4, b'G', b'O', b'O', b'D',

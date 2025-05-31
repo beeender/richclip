@@ -31,10 +31,10 @@ teardown() {
     [ "$output" = "" ]
 }
 
-@test "X paste with empty clipbaord" {
-    # NOTE: This test fails with gnome, it seems the clipbaord is not empty after xclip getting
+@test "X paste with empty clipboard" {
+    # NOTE: This test fails with gnome, it seems the clipboard is not empty after xclip getting
     # killed
-    # Empty clipbaord
+    # Empty clipboard
     echo "TestDaTA" | xclip -i -selection clipboard 3>&-
     killall xclip
     run -0 --separate-stderr "$RICHCLIP" paste
