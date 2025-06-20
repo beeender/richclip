@@ -1,7 +1,9 @@
 extern crate clap;
-extern crate daemonize;
 extern crate log;
 extern crate simplelog;
+
+#[cfg(target_os = "linux")]
+extern crate daemonize;
 
 mod clipboard;
 mod protocol;

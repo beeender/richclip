@@ -3,7 +3,9 @@ mod mac;
 mod mime_type;
 #[cfg(target_os = "linux")]
 mod wayland;
+#[cfg(target_os = "linux")]
 mod x;
+mod win;
 
 use super::protocol::SourceData;
 use anyhow::Result;
@@ -38,6 +40,7 @@ use mac::MacBackend;
 pub use wayland::WaylandBackend;
 #[cfg(target_os = "linux")]
 pub use x::XBackend;
+use crate::clipboard::win::WinBackend;
 
 #[cfg(target_os = "linux")]
 pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
@@ -60,4 +63,9 @@ pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
     // }
 
     Ok(Box::new(MacBackend {}))
+}
+
+#[cfg(target_os = "windows")]
+pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
+    Ok(Box::new(WinBackend {}))
 }

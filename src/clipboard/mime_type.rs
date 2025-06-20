@@ -7,6 +7,9 @@ const TEXT_TYPE_EXACT: &[&str] = &[
     "STRING",
     "UTF8_STRING",
     "json",
+
+    "CF_TEXT",
+    "CF_UNICODETEXT"
 ];
 
 const TEXT_TYPE_SUFFIX: &[&str] = &["script", "xml", "yaml", "csv", "ini"];
