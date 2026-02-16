@@ -21,6 +21,10 @@ use wayrs_protocols::wlr_data_control_unstable_v1::{
 
 pub struct WaylandBackend {}
 
+pub fn test_protocol_available() -> bool {
+    create_wayland_client::<()>().is_ok()
+}
+
 struct WaylandClient<T> {
     conn: Connection<T>,
     seat: WlSeat,
@@ -62,8 +66,10 @@ fn create_wayland_client<T>() -> Result<WaylandClient<T>> {
     conn.blocking_roundtrip()
         .context("Failed to call 'blocking_roundtrip'")?;
 
-    let seat: WlSeat = conn.bind_singleton(2..=4).context("")?;
-    let data_ctl_mgr: ZwlrDataControlManagerV1 = conn.bind_singleton(..=2).context("")?;
+    let seat: WlSeat = conn
+        .bind_singleton(2..=4)
+        .context("Failed to bind Wayland seat")?;
+    let data_ctl_mgr: ZwlrDataControlManagerV1 = conn.bind_singleton(..=2).context("Failed to bind data control manager (wlr_data_control_unstable_v1 protocol may not be available)")?;
 
     Ok(WaylandClient::<T> {
         conn,

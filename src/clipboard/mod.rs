@@ -41,9 +41,16 @@ pub use x::XBackend;
 
 #[cfg(target_os = "linux")]
 pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
+    // Try Wayland first, but only if the required protocol is available
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        return Ok(Box::new(WaylandBackend {}));
-    } else if std::env::var("DISPLAY").is_ok() {
+        if wayland::test_protocol_available() {
+            return Ok(Box::new(WaylandBackend {}));
+        }
+        log::debug!("Wayland wlr_data_control protocol not available, trying X11 fallback");
+    }
+
+    // Fall back to X11
+    if std::env::var("DISPLAY").is_ok() {
         return Ok(Box::new(XBackend {}));
     }
 
