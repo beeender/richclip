@@ -2,6 +2,8 @@
 
 Next Release
 
+- Add Windows x86-64 and ARM64 support.
+
 v0.3.0
 
 - Add Mac support.

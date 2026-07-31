@@ -1,8 +1,12 @@
 #[cfg(target_os = "macos")]
 mod mac;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 mod mime_type;
 #[cfg(target_os = "linux")]
 mod wayland;
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "linux")]
 mod x;
 
 use super::protocol::SourceData;
@@ -19,20 +23,25 @@ pub trait ClipBackend {
 pub struct PasteConfig {
     // Only list mime-types
     pub list_types_only: bool,
+    #[cfg(target_os = "linux")]
     pub use_primary: bool,
     pub expected_mime_type: String,
     pub writer: Box<dyn Write>,
 }
 
 pub struct CopyConfig {
+    #[cfg(target_os = "linux")]
     pub use_primary: bool,
     pub source_data: Box<dyn SourceData>,
     // For testing X INCR mode
+    #[cfg(target_os = "linux")]
     pub x_chunk_size: usize,
 }
 
 #[cfg(target_os = "macos")]
 use mac::MacBackend;
+#[cfg(target_os = "windows")]
+use windows::WindowsBackend;
 
 #[cfg(target_os = "linux")]
 pub use wayland::WaylandBackend;
@@ -67,4 +76,9 @@ pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
     // }
 
     Ok(Box::new(MacBackend {}))
+}
+
+#[cfg(target_os = "windows")]
+pub fn create_backend() -> Result<Box<dyn ClipBackend>> {
+    Ok(Box::new(WindowsBackend {}))
 }

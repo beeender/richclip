@@ -1,4 +1,5 @@
 extern crate clap;
+#[cfg(target_os = "linux")]
 extern crate daemonize;
 extern crate log;
 extern crate simplelog;
@@ -42,6 +43,7 @@ struct CopyArgs {
         value_name = "mime-type", default_missing_value = "TEXT", action = ArgAction::Append )]
     mime_types: Option<Vec<String>>,
     /// For testing X INCR mode
+    #[cfg(target_os = "linux")]
     #[arg(
         long = "chunk-size",
         hide = true,
@@ -181,8 +183,7 @@ fn do_copy(copy_args: &CopyArgs) -> Result<()> {
         source_data: Box::new(source_data),
         #[cfg(target_os = "linux")]
         use_primary: copy_args.primary,
-        #[cfg(not(target_os = "linux"))]
-        use_primary: false,
+        #[cfg(target_os = "linux")]
         x_chunk_size: copy_args.chunk_size,
     };
     clipboard::create_backend()?
@@ -195,8 +196,6 @@ fn do_paste(paste_args: &PasteArgs) -> Result<()> {
         list_types_only: paste_args.list_types,
         #[cfg(target_os = "linux")]
         use_primary: paste_args.primary,
-        #[cfg(not(target_os = "linux"))]
-        use_primary: false,
         writer: Box::new(stdout()),
         expected_mime_type: paste_args.type_.clone(),
     };

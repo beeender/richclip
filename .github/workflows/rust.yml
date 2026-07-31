@@ -25,6 +25,9 @@ jobs:
           ## macOS builds
           - os: macos-latest
 
+          ## Windows builds
+          - os: windows-latest
+
     steps:
     - uses: actions/checkout@v4
     - name: Install Linux test dependencies
@@ -33,6 +36,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y xvfb xclip
     - name: Setup Bats and bats libs
+      if: runner.os != 'Windows'
       id: setup-bats
       uses: bats-core/bats-action@3.0.1
     - name: Build
@@ -58,3 +62,15 @@ jobs:
       env:
         BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
         TERM: xterm
+
+    - name: Run integration tests on Windows
+      if: runner.os == 'Windows'
+      run: test/windows/windows.ps1
+      shell: pwsh
+
+    - name: Check Windows ARM64 build
+      if: runner.os == 'Windows'
+      run: |
+        rustup target add aarch64-pc-windows-msvc
+        cargo build --locked --target aarch64-pc-windows-msvc
+      shell: pwsh
