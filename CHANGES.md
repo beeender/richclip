@@ -2,6 +2,9 @@
 
 Next Release
 
+
+v0.4.0
+
 - Add Windows x86-64 and ARM64 support.
 
 v0.3.0
