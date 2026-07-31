@@ -31,6 +31,16 @@ jobs:
             artifact_name: target/aarch64-apple-darwin/release/richclip
             archive_type: tar.gz
 
+          ## Windows builds
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: target/x86_64-pc-windows-msvc/release/richclip.exe
+            archive_type: zip
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: target/aarch64-pc-windows-msvc/release/richclip.exe
+            archive_type: zip
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,12 +55,20 @@ jobs:
           strip: true
 
       - name: Archive Release
+        if: runner.os != 'Windows'
         uses: TheDoctor0/zip-release@0.7.6
         with:
           type: ${{ matrix.archive_type }}
           directory: target/${{ matrix.target }}/release
           path: richclip
           filename: richclip_${{ github.ref_name }}_${{ matrix.target }}.${{ matrix.archive_type }}
+
+      - name: Archive Windows Release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "target/${{ matrix.target }}/release/richclip_${{ github.ref_name }}_${{ matrix.target }}.zip"
+          Compress-Archive -Path "${{ matrix.artifact_name }}" -DestinationPath $archive
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
